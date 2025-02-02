@@ -59,6 +59,20 @@ let currentCamParams = {
 const CAM_UPDATE_INTERVAL = 1000; // Update target every 1 second
 const CAM_SMOOTH_FACTOR = 0.1; // Lower = smoother (0.05 to 0.2 is good range)
 
+// Add new global variables at the top
+let gravityStrength = 0;  // -100 to +100
+const GRAVITY_UPDATE_INTERVAL = 100;
+let lastGravityUpdate = 0;
+const FOOD_BIRTH_COUNT = 4;  // Number of food items needed to create a snake
+
+// Add these global variables at the top
+let foodVelocities = new Map(); // Store velocities for each food item
+const FRICTION = 0.98;  // Damping factor for velocities
+const MAX_VELOCITY = 0.5;  // Maximum velocity magnitude
+
+// In setup() or at the top with other globals
+let clearBackgroundAlpha = 255; // Full opacity by default
+
 // Initialize grid dimensions in setup() based on window proportions
 function initializeGrid() {
   let aspectRatio = windowWidth / windowHeight;
@@ -127,28 +141,11 @@ function setup() {
 }
 
 function draw() {
+  // Clear or draw semi-transparent background based on settings
   if (shouldClearBackground) {
-    push();
-      // Switch completely to 2D mode
-      let renderer = this._renderer;
-      renderer.GL.disable(renderer.GL.DEPTH_TEST);
-      
-      // Draw directly in screen space
-      translate(-width/2, -height/2);
-      noStroke();
-      let fadeColor = color(bgColor);
-      fadeColor.setAlpha(255 - (motionBlurAmount * 2.55));
-      fill(fadeColor);
-      
-      // Draw a rectangle covering the entire screen
-      beginShape();
-      vertex(-width*16, -height*16);
-      vertex(width*16, -height*16);
-      vertex(width*16, height*16);
-      vertex(-width*16, height*16);
-      endShape(CLOSE);
-      renderer.GL.enable(renderer.GL.DEPTH_TEST);
-    pop();
+    // Convert motion blur (0-1) to alpha (255-0)
+    clearBackgroundAlpha = 255 - (motionBlurAmount * 255);
+    background(red(bgColor), green(bgColor), blue(bgColor), clearBackgroundAlpha);
   }
   
   // Auto-adjust camera to frame all snakes
@@ -335,6 +332,9 @@ class Snake {
 function updateGame() {
   const aliveCount = snakes.filter(s => s.alive).length;
   if (DEBUG) console.log(`Update cycle: ${aliveCount} snakes alive, ${foods.length} food items`);
+  
+  // Update gravity effects
+  updateGravityEffects();
   
   // Update each snake: determine direction, move, check for food, and self-collision.
   snakes.forEach((snake, index) => {
@@ -545,12 +545,11 @@ function checkFoodCollision(snake) {
   let head = snake.body[0];
   for (let i = foods.length - 1; i >= 0; i--) {
     let food = foods[i];
-    // Use equalWithWrapping instead of equals
     if (equalWithWrapping(head, food.pos)) {
       snake.grow();
-      foods.splice(i, 1);
-      spawnFood(); // Spawn one new food item after one is eaten
-      break; // Exit after eating one food item
+      removeFoodItem(food);
+      spawnFood();
+      break;
     }
   }
 }
@@ -562,17 +561,11 @@ function spawnFood() {
     Math.floor(random(GRID_Y)),
     Math.floor(random(GRID_Z))
   );
-  // Verify food isn't placed where a snake segment already is
-  for (let snake of snakes) {
-    if (!snake.alive) continue;
-    for (let seg of snake.body) {
-      if (equalWithWrapping(seg, pos)) {
-        // Try spawning again if position is occupied
-        return spawnFood();
-      }
-    }
-  }
-  foods.push({ pos: pos, birth: millis(), col: palette[0] });
+  
+  // Initialize with zero velocity
+  let foodItem = { pos: pos, birth: millis(), col: palette[0] };
+  foods.push(foodItem);
+  foodVelocities.set(foodItem, createVector(0, 0, 0));
 }
 
 // Spawn food at a specific grid cell.
@@ -657,53 +650,77 @@ function mouseDragged() {
 // If a cluster of exactly 3 food items is found, remove them
 // and spawn a 1-cell snake at the average grid position of the cluster.
 function checkFoodClusters() {
-  // Use 6-adjacency (neighbors differ by exactly 1 along one axis)
   let clusters = [];
   let visited = new Array(foods.length).fill(false);
   
+  // Find clusters of adjacent food items
   for (let i = 0; i < foods.length; i++) {
     if (visited[i]) continue;
+    
     let cluster = [];
-    function dfs(idx) {
-      visited[idx] = true;
-      cluster.push(idx);
-      let f = foods[idx];
+    let toCheck = [i];
+    visited[i] = true;
+    
+    while (toCheck.length > 0) {
+      let current = toCheck.pop();
+      cluster.push(current);
+      
+      // Check all neighboring cells (26 neighbors in 3D)
       for (let j = 0; j < foods.length; j++) {
-        if (!visited[j]) {
-          let g = foods[j];
-          let dx = abs(f.pos.x - g.pos.x);
-          let dy = abs(f.pos.y - g.pos.y);
-          let dz = abs(f.pos.z - g.pos.z);
-          if ((dx + dy + dz) === 1) { // adjacent on one axis only
-            dfs(j);
+        if (visited[j]) continue;
+        
+        let dx = Math.abs(foods[current].pos.x - foods[j].pos.x);
+        if (dx > 1 && dx < GRID_X - 1) continue;
+        
+        let dy = Math.abs(foods[current].pos.y - foods[j].pos.y);
+        if (dy > 1 && dy < GRID_Y - 1) continue;
+        
+        let dz = Math.abs(foods[current].pos.z - foods[j].pos.z);
+        if (dz > 1 && dz < GRID_Z - 1) continue;
+        
+        // If food items are adjacent (including diagonally)
+        if (dx <= 1 || dx >= GRID_X - 1) {
+          if (dy <= 1 || dy >= GRID_Y - 1) {
+            if (dz <= 1 || dz >= GRID_Z - 1) {
+              toCheck.push(j);
+              visited[j] = true;
+            }
           }
         }
       }
     }
-    dfs(i);
-    clusters.push(cluster);
-  }
-  
-  let indicesToRemove = [];
-  for (let cluster of clusters) {
-    if (cluster.length === 3) {
-      // Compute average position of the food cluster
-      let sum = createVector(0, 0, 0);
-      for (let idx of cluster) {
-        sum.add(foods[idx].pos);
-      }
-      sum.div(cluster.length);
-      // Round the center position to grid coordinates.
-      let newPos = createVector(Math.round(sum.x), Math.round(sum.y), Math.round(sum.z));
-      // Spawn a new 1-cell snake at this position.
-      let snake = spawnSnakeAt(newPos);
-      snakes.push(snake);
-      if (DEBUG) console.log(`Cluster of 3 food turned into a snake at (${newPos.x}, ${newPos.y}, ${newPos.z})`);
-      indicesToRemove.push(...cluster);
+    
+    if (cluster.length >= FOOD_BIRTH_COUNT) {
+      clusters.push(cluster);
     }
   }
   
-  // Remove the food items that formed a cluster (remove from highest index to lowest)
+  // Process valid clusters
+  let indicesToRemove = [];
+  for (let cluster of clusters) {
+    // Calculate average position
+    let sum = createVector(0, 0, 0);
+    for (let idx of cluster) {
+      sum.add(foods[idx].pos);
+    }
+    sum.div(cluster.length);
+    
+    // Round to nearest grid position
+    let newPos = createVector(
+      Math.round(sum.x),
+      Math.round(sum.y),
+      Math.round(sum.z)
+    );
+    
+    // Spawn new snake
+    let snake = spawnSnakeAt(newPos);
+    snakes.push(snake);
+    
+    if (DEBUG) console.log(`Cluster of ${cluster.length} food turned into a snake at (${newPos.x}, ${newPos.y}, ${newPos.z})`);
+    indicesToRemove.push(...cluster);
+  }
+  
+  // Remove used food items
   indicesToRemove.sort((a, b) => b - a);
   for (let idx of indicesToRemove) {
     foods.splice(idx, 1);
@@ -728,10 +745,10 @@ function spawnSnakeAt(pos) {
 }
 
 function updateFoods() {
-  let current = millis();
+  let now = millis();
   for (let i = foods.length - 1; i >= 0; i--) {
-    if (current - foods[i].birth > FOOD_MAX_AGE) {
-      foods.splice(i, 1);
+    if (now - foods[i].birth > FOOD_MAX_AGE) {
+      removeFoodItem(foods[i]);
     }
   }
 }
@@ -880,8 +897,9 @@ function updateParams() {
   INITIAL_SNAKE_LENGTH = parseInt(document.getElementById('snakeLength').value);
   FOOD_MAX_AGE = parseInt(document.getElementById('foodMaxAge').value);
   shouldClearBackground = document.getElementById('clearBackground').checked;
-  motionBlurAmount = parseInt(document.getElementById('motionBlur').value);
+  motionBlurAmount = parseFloat(document.getElementById('motionBlur').value);
   currentPalette = document.getElementById('colorPalette').value;
+  gravityStrength = parseInt(document.getElementById('gravityStrength').value);
   updatePalette();
 }
 
@@ -889,10 +907,11 @@ function updateParams() {
 function restartSimulation() {
   updateParams();
   // Force clear background on restart
-  background(bgColor);
+  background(red(bgColor), green(bgColor), blue(bgColor), 255); // Full clear on restart
   // Clear existing arrays
   snakes = [];
   foods = [];
+  foodVelocities.clear();  // Clear all velocities
   // Reset camera position
   camX = 0;
   camY = 0;
@@ -915,9 +934,9 @@ function restartSimulation() {
       floor(random(GRID_Z))
     );
     let dir = random([
-      createVector(1,0,0), createVector(-1,0,0),
-      createVector(0,1,0), createVector(0,-1,0),
-      createVector(0,0,1), createVector(0,0,-1)
+      createVector(1, 0, 0), createVector(-1, 0, 0),
+      createVector(0, 1, 0), createVector(0, -1, 0),
+      createVector(0, 0, 1), createVector(0, 0, -1)
     ]);
     snakes.push(new Snake(pos, dir, random(palette)));
   }
@@ -1016,46 +1035,17 @@ function spawnFoodUnderCursor() {
 
 // Randomize simulation parameters while ensuring (NUM_SNAKES * INITIAL_SNAKE_LENGTH < 10000)
 function randomizeParams() {
-  // Randomize snake length between 3 and 20.
-  let snakeLength = floor(random(3, 21));
-  // Maximum number of snakes is floor(10000 / snakeLength)
-  let maxSnakes = floor(10000 / snakeLength);
-  // Ensure we have at least 10 snakes but no more than maxSnakes
-  let numSnakes = floor(random(10, min(maxSnakes + 1, 1000)));
-
-  // Randomize additional parameters.
-  let foodCount = floor(random(50, 301));         // Food count between 50 and 300.
-  let foodMaxAge = floor(random(5000, 20001));    // Food max age between 5000 and 20000.
-
-  // Randomize palette selection
-  let paletteKeys = Object.keys(PALETTES);
-  currentPalette = random(paletteKeys);
-
-  if (DEBUG) {
-    console.log(`Randomized params: snakes=${numSnakes}, length=${snakeLength}, ` +
-                `product=${numSnakes * snakeLength}, foodCount=${foodCount}, ` +
-                `palette=${currentPalette}`);
-  }
-
-  // Update global simulation parameters.
-  NUM_SNAKES = numSnakes;
-  INITIAL_SNAKE_LENGTH = snakeLength;
-  FOOD_COUNT = foodCount;
-  FOOD_MAX_AGE = foodMaxAge;
-
-  // Update control panel UI if available.
-  if (document.getElementById('numSnakes'))
-    document.getElementById('numSnakes').value = numSnakes;
-  if (document.getElementById('snakeLength'))
-    document.getElementById('snakeLength').value = snakeLength;
-  if (document.getElementById('foodCount'))
-    document.getElementById('foodCount').value = foodCount;
-  if (document.getElementById('foodMaxAge'))
-    document.getElementById('foodMaxAge').value = foodMaxAge;
-  if (document.getElementById('colorPalette'))
-    document.getElementById('colorPalette').value = currentPalette;
-
-  // Restart simulation with new parameters.
+  document.getElementById('numSnakes').value = Math.floor(random(50, 200));
+  document.getElementById('foodCount').value = Math.floor(random(50, 200));
+  document.getElementById('snakeLength').value = Math.floor(random(3, 10));
+  document.getElementById('foodMaxAge').value = Math.floor(random(5000, 15000));
+  document.getElementById('gravityStrength').value = random([-1, 0, 1]);
+  
+  let palettes = document.getElementById('colorPalette').options;
+  let randomIndex = Math.floor(random(palettes.length));
+  document.getElementById('colorPalette').selectedIndex = randomIndex;
+  
+  updateParams();
   restartSimulation();
 }
 
@@ -1075,4 +1065,82 @@ function equalWithWrapping(posA, posB) {
     ((posA.y + GRID_Y) % GRID_Y === (posB.y + GRID_Y) % GRID_Y) &&
     ((posA.z + GRID_Z) % GRID_Z === (posB.z + GRID_Z) % GRID_Z)
   );
+}
+
+// Simplified gravity update function
+function updateGravityEffects() {
+  if (gravityStrength === 0) return;
+  
+  let now = millis();
+  if (now - lastGravityUpdate < GRAVITY_UPDATE_INTERVAL) return;
+  lastGravityUpdate = now;
+  
+  // Calculate center of the volume
+  let center = createVector(GRID_X/2, GRID_Y/2, GRID_Z/2);
+  let pull = gravityStrength > 0;  // true = pull to center, false = push to edges
+  
+  // Process each food item
+  for (let food of foods) {
+    let pos = food.pos;
+    // Find the direction with largest distance to center
+    let dx = Math.abs(pos.x - center.x);
+    let dy = Math.abs(pos.y - center.y);
+    let dz = Math.abs(pos.z - center.z);
+    
+    let newPos = pos.copy();
+    
+    // Move in the direction of largest distance
+    if (dx >= dy && dx >= dz) {
+      // Move along X
+      let moveDir = pos.x > center.x ? -1 : 1;
+      if (!pull) moveDir *= -1;
+      newPos.x = (pos.x + moveDir + GRID_X) % GRID_X;
+    } else if (dy >= dx && dy >= dz) {
+      // Move along Y
+      let moveDir = pos.y > center.y ? -1 : 1;
+      if (!pull) moveDir *= -1;
+      newPos.y = (pos.y + moveDir + GRID_Y) % GRID_Y;
+    } else {
+      // Move along Z
+      let moveDir = pos.z > center.z ? -1 : 1;
+      if (!pull) moveDir *= -1;
+      newPos.z = (pos.z + moveDir + GRID_Z) % GRID_Z;
+    }
+    
+    // Apply move if position is free
+    if (isPositionFree(newPos)) {
+      food.pos = newPos;
+    }
+  }
+}
+
+// Helper function to check if a position is free
+function isPositionFree(pos) {
+  // Check collision with other food
+  for (let food of foods) {
+    if (equalWithWrapping(pos, food.pos)) {
+      return false;
+    }
+  }
+  
+  // Check collision with snakes
+  for (let snake of snakes) {
+    if (!snake.alive) continue;
+    for (let seg of snake.body) {
+      if (equalWithWrapping(pos, seg)) {
+        return false;
+      }
+    }
+  }
+  
+  return true;
+}
+
+// Clean up velocities when food is removed
+function removeFoodItem(food) {
+  let index = foods.indexOf(food);
+  if (index > -1) {
+    foods.splice(index, 1);
+    foodVelocities.delete(food);
+  }
 } 

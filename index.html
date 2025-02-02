@@ -34,8 +34,19 @@
       </div>
       <div class="control-group">
         <label for="colorPalette">Color Palette:</label>
-        <select id="colorPalette">
+        <select id="colorPalette" onchange="updateParams()">
           <option value="default">Default</option>
+          <option value="neonNightmare">Neon Nightmare</option>
+          <option value="candyLand">Candy Land</option>
+          <option value="toxicWaste">Toxic Waste</option>
+          <option value="iceCream">Ice Cream Shop</option>
+          <option value="lavaLamp">Lava Lamp</option>
+          <option value="deepSea">Deep Sea</option>
+          <option value="alienInvasion">Alien Invasion</option>
+          <option value="discoFever">Disco Fever</option>
+          <option value="retroComputer">Retro Computer</option>
+          <option value="sunsetBeach">Sunset Beach</option>
+          <option value="cottonCandy">Cotton Candy</option>
           <option value="miro">Miró</option>
           <option value="magritte">Magritte</option>
           <option value="soviet">Soviet Poster</option>
@@ -44,12 +55,16 @@
         </select>
       </div>
       <div class="control-group">
-        <label for="clearBackground">Clear Background:</label>
-        <input type="checkbox" id="clearBackground" checked>
+        <label for="gravityStrength">Gravity:</label>
+        <input type="range" id="gravityStrength" min="-1" max="1" value="0" step="1" onchange="updateParams()">
       </div>
       <div class="control-group">
-        <label for="motionBlur">Motion Blur Amount:</label>
-        <input type="range" id="motionBlur" min="0" max="100" value="0">
+        <label for="motionBlur">Motion Blur:</label>
+        <input type="range" id="motionBlur" min="0" max="1" value="0.5" step="0.1" onchange="updateParams()">
+      </div>
+      <div class="control-group">
+        <label for="clearBackground">Clear Background:</label>
+        <input type="checkbox" id="clearBackground" checked onchange="updateParams()">
       </div>
       <button onclick="restartSimulation()" class="restart-btn">Restart Simulation</button>
     </div>
