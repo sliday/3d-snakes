@@ -354,7 +354,7 @@ class Snake {
       const segments = [...this.body];
       for (let segment of segments) {
         if (DEBUG) console.log(`Converting segment at (${segment.x}, ${segment.y}, ${segment.z}) to food`);
-        // Force spawn food at each segment's position with the snake's color
+        // Add birth time and animation properties to food from dead snake
         spawnFoodAt(segment.x, segment.y, segment.z, this.col, true);
       }
       this.alive = false;
@@ -390,70 +390,107 @@ function updateGame() {
   updateFoods();
 }
 
-// AI: Update snake's direction using classic snake game logic
-function updateAISnake(snake) {
-  if (HUNTING_MODE_ENABLED) {
-    let candidate = null;
-    let minCandidateDistance = Infinity;
-    const head1 = snake.body[0];
-    for (let otherSnake of snakes) {
-      if (!otherSnake.alive || otherSnake === snake) continue;
-      if (otherSnake.body.length < snake.body.length * 0.7) {
-        const head2 = otherSnake.body[0];
-        let d = Math.abs(head2.x - head1.x) + Math.abs(head2.y - head1.y) + Math.abs(head2.z - head1.z);
-        if (d < minCandidateDistance) {
-          minCandidateDistance = d;
-          candidate = otherSnake;
-        }
+// Add this helper function to get all available directions except the reverse
+function getAvailableDirections(currentDir) {
+  let dirs = [
+    createVector(1,0,0), createVector(-1,0,0),
+    createVector(0,1,0), createVector(0,-1,0),
+    createVector(0,0,1), createVector(0,0,-1)
+  ];
+  // Remove the reverse of current direction
+  return dirs.filter(d => !d.equals(p5.Vector.mult(currentDir, -1)));
+}
+
+// Add this helper to check if a position will lead to being trapped
+function checkForTrappedPath(snake, pos, depth = 3) {
+  if (depth === 0) return false;
+  
+  // Check all possible next moves from this position
+  let availableMoves = 0;
+  let dirs = getAvailableDirections(snake.direction);
+  
+  for (let dir of dirs) {
+    let nextPos = p5.Vector.add(pos, dir);
+    nextPos.x = (nextPos.x + GRID_X) % GRID_X;
+    nextPos.y = (nextPos.y + GRID_Y) % GRID_Y;
+    nextPos.z = (nextPos.z + GRID_Z) % GRID_Z;
+    
+    // Check if this move is free
+    let isFree = true;
+    for (let seg of snake.body) {
+      if (equalWithWrapping(nextPos, seg)) {
+        isFree = false;
+        break;
       }
     }
-
-    if (candidate) {
-      const candidateHead = candidate.body[0];
-      let candidateCurrentDistance = minCandidateDistance;
-      let predictedCandidateHead = candidateHead.copy();
-      predictedCandidateHead.add(candidate.direction);
-      let candidateNextDistance = Math.abs(predictedCandidateHead.x - head1.x) +
-        Math.abs(predictedCandidateHead.y - head1.y) +
-        Math.abs(predictedCandidateHead.z - head1.z);
-
-      let minFoodDistance = Infinity;
-      for (let food of foods) {
-        let dxFood = Math.abs(food.pos.x - head1.x);
-        let dyFood = Math.abs(food.pos.y - head1.y);
-        let dzFood = Math.abs(food.pos.z - head1.z);
-        let foodDist = dxFood + dyFood + dzFood;
-        if (foodDist < minFoodDistance) {
-          minFoodDistance = foodDist;
-        }
-      }
-
-      if (candidateNextDistance < candidateCurrentDistance &&
-        (foods.length === 0 || minFoodDistance > candidateCurrentDistance)) {
-        const targetHead = candidate.body[0];
-        let dx = targetHead.x - head1.x;
-        let dy = targetHead.y - head1.y;
-        let dz = targetHead.z - head1.z;
-
-        let newDir = createVector(0, 0, 0);
-        if (Math.abs(dx) >= Math.abs(dy) && Math.abs(dx) >= Math.abs(dz)) {
-          newDir.x = Math.sign(dx);
-        } else if (Math.abs(dy) >= Math.abs(dx) && Math.abs(dy) >= Math.abs(dz)) {
-          newDir.y = Math.sign(dy);
-        } else {
-          newDir.z = Math.sign(dz);
-        }
-
-        if (isSafeMove(snake, newDir)) {
-          snake.setDirection(newDir);
-        }
-        return;
+    
+    if (isFree) {
+      availableMoves++;
+      // Recursively check if this path leads to being trapped
+      if (!checkForTrappedPath(snake, nextPos, depth - 1)) {
+        return false; // Found at least one good path
       }
     }
   }
+  
+  return availableMoves === 0; // Return true if no moves available
+}
 
+// Modify updateAISnake to include smarter collision avoidance
+function updateAISnake(snake) {
+  const head = snake.body[0];  // Changed to const to prevent redeclaration
+  
+  // First, check if we're about to collide with our body
+  let nextPos = p5.Vector.add(head, snake.direction);
+  nextPos.x = (nextPos.x + GRID_X) % GRID_X;
+  nextPos.y = (nextPos.y + GRID_Y) % GRID_Y;
+  nextPos.z = (nextPos.z + GRID_Z) % GRID_Z;
+  
+  // Check if next position would collide or lead to being trapped
+  let needsEvasion = false;
+  for (let i = 1; i < snake.body.length; i++) {
+    if (equalWithWrapping(nextPos, snake.body[i])) {
+      needsEvasion = true;
+      break;
+    }
+  }
+  
+  if (!needsEvasion) {
+    needsEvasion = checkForTrappedPath(snake, nextPos);
+  }
+  
+  if (needsEvasion) {
+    // Get all possible directions except reverse
+    let availableDirs = getAvailableDirections(snake.direction);
+    
+    // Shuffle directions to avoid predictable patterns
+    availableDirs = shuffle(availableDirs);
+    
+    // Try each direction until we find a safe one
+    for (let newDir of availableDirs) {
+      let testPos = p5.Vector.add(head, newDir);
+      testPos.x = (testPos.x + GRID_X) % GRID_X;
+      testPos.y = (testPos.y + GRID_Y) % GRID_Y;
+      testPos.z = (testPos.z + GRID_Z) % GRID_Z;
+      
+      // Check if this direction is safe
+      let isSafe = true;
+      for (let seg of snake.body) {
+        if (equalWithWrapping(testPos, seg)) {
+          isSafe = false;
+          break;
+        }
+      }
+      
+      if (isSafe && !checkForTrappedPath(snake, testPos)) {
+        snake.setDirection(newDir);
+        return; // Found a safe direction, exit
+      }
+    }
+  }
+  
+  // If no evasion needed or no safe direction found, continue with normal behavior
   if (foods.length === 0) return;
-  let head = snake.body[0];
 
   let closestFood = null;
   let minDistance = Infinity;
@@ -481,8 +518,8 @@ function updateAISnake(snake) {
   let dz = closestFood.pos.z - head.z;
 
   if ((dx > 0 && currentDirX > 0) || (dx < 0 && currentDirX < 0) ||
-    (dy > 0 && currentDirY > 0) || (dy < 0 && currentDirY < 0) ||
-    (dz > 0 && currentDirZ > 0) || (dz < 0 && currentDirZ < 0)) {
+      (dy > 0 && currentDirY > 0) || (dy < 0 && currentDirY < 0) ||
+      (dz > 0 && currentDirZ > 0) || (dz < 0 && currentDirZ < 0)) {
     return;
   }
 
