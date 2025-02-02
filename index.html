@@ -4,75 +4,90 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>3D Snake Game</title>
+  <link rel="stylesheet" href="https://unpkg.com/98.css" />
   <link rel="stylesheet" href="style.css" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
-  <script src="palettes.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js" defer></script>
+  <script src="palettes.js" defer></script>
+  <script src="sketch.js" defer></script>
 </head>
 <body>
-  <div id="control-panel" class="control-panel">
-    <div class="panel-header" onclick="togglePanel()">
-      <h3>Parameters</h3>
-      <span class="toggle-icon">▾</span>
+  <div id="control-panel" class="window" data-minimized="false" style="width: 200px; position: fixed; right: 20px; top: 20px; z-index: 100;">
+    <div class="title-bar">
+      <div class="title-bar-text">⚙️ Settings</div>
+      <div class="title-bar-controls">
+        <button aria-label="Minimize" onclick="toggleControlPanel()">&nbsp;</button>
+      </div>
     </div>
-    <div class="panel-content">
-      <div class="save-hint">Press S to save image</div>
-      <button id="btnRandomize" class="control-button">🎲 Randomize</button>
-      <div class="control-group">
+    <div class="window-body">
+      <div class="field-row">
+        <p class="note">Press [S] to save image</p>
+      </div>
+      <div class="field-row">
         <label for="numSnakes">Number of Snakes:</label>
         <input type="number" id="numSnakes" value="100" min="1" max="1000">
       </div>
-      <div class="control-group">
+      <div class="field-row">
         <label for="foodCount">Initial Food:</label>
         <input type="number" id="foodCount" value="100" min="1" max="1000">
       </div>
-      <div class="control-group">
+      <div class="field-row">
         <label for="snakeLength">Initial Snake Length:</label>
         <input type="number" id="snakeLength" value="5" min="1" max="50">
       </div>
-      <div class="control-group">
+      <div class="field-row">
         <label for="foodMaxAge">Food Lifespan (ms):</label>
         <input type="number" id="foodMaxAge" value="10000" min="1000" max="60000">
       </div>
-      <div class="control-group">
+      <div class="field-row">
         <label for="colorPalette">Color Palette:</label>
         <select id="colorPalette" onchange="updateParams()">
-          <option value="default">Default</option>
-          <option value="neonNightmare">Neon Nightmare</option>
-          <option value="candyLand">Candy Land</option>
-          <option value="toxicWaste">Toxic Waste</option>
-          <option value="iceCream">Ice Cream Shop</option>
-          <option value="lavaLamp">Lava Lamp</option>
-          <option value="deepSea">Deep Sea</option>
-          <option value="alienInvasion">Alien Invasion</option>
-          <option value="discoFever">Disco Fever</option>
-          <option value="retroComputer">Retro Computer</option>
-          <option value="sunsetBeach">Sunset Beach</option>
-          <option value="cottonCandy">Cotton Candy</option>
-          <option value="miro">Miró</option>
-          <option value="magritte">Magritte</option>
-          <option value="soviet">Soviet Poster</option>
-          <option value="mondrian">Mondrian</option>
-          <option value="kandinsky">Kandinsky</option>
+          <!-- Palette options will be populated dynamically from palettes.js via updatePaletteDropdown() -->
         </select>
       </div>
-      <div class="control-group">
+      <div class="field-row">
         <label for="snakeStyle">Snake Style:</label>
         <select id="snakeStyle" onchange="updateParams()">
           <option value="cubes" selected>Cubes</option>
           <option value="dots">Dots</option>
         </select>
       </div>
-      <div class="control-group">
+      <div class="field-row">
         <label for="gravityStrength">Gravity:</label>
         <input type="range" id="gravityStrength" min="-1" max="1" value="0" step="1" onchange="updateParams()">
       </div>
-      <div class="control-group">
+      <div class="field-row">
         <label for="motionBlur">Motion Blur:</label>
         <input type="range" id="motionBlur" min="0" max="100" value="50" step="1" onchange="updateParams()">
       </div>
-      <button onclick="restartSimulation()" class="restart-btn">Restart Simulation</button>
+      <div class="field-row">
+        <button id="btnRandomize" class="button">Randomize</button>
+        <button onclick="restartSimulation()" class="button">Restart</button>
+      </div>
     </div>
   </div>
-  <script src="sketch.js"></script>
+  <script>
+    function toggleControlPanel() {
+      const panel = document.getElementById('control-panel');
+      const windowBody = panel.querySelector('.window-body');
+      const toggleButton = panel.querySelector('.title-bar-controls button');
+      
+      // Check the custom data attribute to determine the state
+      const isMinimized = panel.getAttribute('data-minimized') === 'true';
+      
+      if (isMinimized) {
+        // If minimized, restore it
+        windowBody.style.display = "block";
+        toggleButton.innerHTML = "&minus;";
+        toggleButton.setAttribute("aria-label", "Minimize");
+        panel.setAttribute('data-minimized', 'false');
+      } else {
+        // If not minimized, minimize the panel
+        windowBody.style.display = "none";
+        toggleButton.innerHTML = "&nbsp;";
+        toggleButton.setAttribute("aria-label", "Restore");
+        panel.setAttribute('data-minimized', 'true');
+      }
+    }
+  </script>
 </body>
 </html> 

@@ -24,7 +24,7 @@ const CAM_SPEED = 5;
 const ZOOM_SPEED = 0.1;
 let zoom = 0.5;  // Start more zoomed in
 const MIN_ZOOM = 0.1;  // Maximum zoom out (smaller number = further out)
-const MAX_ZOOM = 3.0;  // Maximum zoom in
+const MAX_ZOOM = 3.333;  // Maximum zoom in
 const ROTATION_SENSITIVITY = 0.005;
 
 // Global variables
@@ -39,7 +39,7 @@ const FOOD_SPAWN_SPREAD = 2;     // spread (in grid cells) around the base cell
 let camEye, camCenter, globalFOV, globalAspect;
 const DEBUG = false; // Set to true to enable debug logs
 let fixedLights = {}; // Fixed light colors to avoid flickering
-let motionBlurAmount = 50;  // Value between 0-100 for plane transparency (default 50%)
+let motionBlurAmount = 75;  // Value between 0-100 for plane transparency (default 50%)
 
 // Add these global variables at the top with other camera variables
 let targetCamParams = {
@@ -314,7 +314,7 @@ class Snake {
         translate(seg.x * cellSize, seg.y * cellSize, seg.z * cellSize);
         fill(this.col);
         noStroke(); // Ensure no stroke is applied in Cubes mode.
-        box(cellSize * 0.9);
+        box(cellSize * 1.1);
         pop();
       }
     }
