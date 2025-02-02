@@ -167,6 +167,7 @@ function draw() {
     noStroke();
     // Map motionBlurAmount (0-100) to alpha (255-0)
     let alpha = map(motionBlurAmount, 0, 100, 255, 0);
+    // Use the current bgColor with calculated alpha
     fill(red(bgColor), green(bgColor), blue(bgColor), alpha);
     // Draw the overlay rectangle to exactly cover the screen
     rect(-width*16, -height*16, width*32, height*32);
@@ -979,8 +980,12 @@ function togglePanel() {
 // Update the color palette array from the selected palette
 function updatePalette() {
   palette = PALETTES[currentPalette].colors.map(c => color(c));
-  // Update background color from the palette's bg property.
+  // Update background color from the palette's bg property, but only store it
+  // Don't apply it directly to avoid jumpy background
   bgColor = PALETTES[currentPalette].bg;
+  
+  // Create a semi-transparent version of bgColor for motion blur
+  let motionBlurColor = color(red(bgColor), green(bgColor), blue(bgColor));
   
   // Precompute fixed light colors (choose once per palette update)
   fixedLights.main  = color(255, 255, 255); // Main directional light (white)
@@ -1183,5 +1188,17 @@ function removeFoodItem(food) {
   if (index > -1) {
     foods.splice(index, 1);
     foodVelocities.delete(food);
+  }
+}
+
+// Add near the top with other event handlers
+function keyPressed() {
+  if (key === 's' || key === 'S') {
+    // Get current date/time for filename
+    let timestamp = year() + nf(month(), 2) + nf(day(), 2) + "_" + 
+                   nf(hour(), 2) + nf(minute(), 2) + nf(second(), 2);
+    // Save the canvas
+    saveCanvas('snakes3d_' + timestamp, 'png');
+    return false; // Prevent default behavior
   }
 } 
