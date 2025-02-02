@@ -111,22 +111,26 @@ function setup() {
 
 function draw() {
   if (shouldClearBackground) {
-    // Draw a large semi-transparent plane that covers the entire view
     push();
-      // Reset the camera transformation to draw in screen space
-      resetMatrix();
-      // Move to screen center since plane is drawn from center
-      translate(width/2, height/2);
-      // Disable depth testing to ensure the plane is always drawn on top
+      // Switch completely to 2D mode
+      let renderer = this._renderer;
+      renderer.GL.disable(renderer.GL.DEPTH_TEST);
+      
+      // Draw directly in screen space
+      translate(-width/2, -height/2);
       noStroke();
       let fadeColor = color(bgColor);
-      // Map motionBlurAmount (0-100) to alpha (255-0)
-      // When motionBlurAmount is 0, alpha is 255 (fully opaque = no trail)
-      // When motionBlurAmount is 100, alpha is 0 (fully transparent = full trail)
       fadeColor.setAlpha(255 - (motionBlurAmount * 2.55));
       fill(fadeColor);
-      // Draw a plane large enough to cover the entire screen
-      plane(width * 8, height * 8);  // Make it 8x larger to ensure full coverage
+      
+      // Draw a rectangle covering the entire screen
+      beginShape();
+      vertex(-width*16, -height*16);
+      vertex(width*16, -height*16);
+      vertex(width*16, height*16);
+      vertex(-width*16, height*16);
+      endShape(CLOSE);
+      renderer.GL.enable(renderer.GL.DEPTH_TEST);
     pop();
   }
   
@@ -281,8 +285,10 @@ class Snake {
   // Check if snake's head collides with any body segment (starting from index 1).
   checkSelfCollision() {
     let head = this.body[0];
+    // Start checking from index 2 to avoid false positives with neck segment
     for (let i = 2; i < this.body.length; i++) {
-      if (this.body[i].equals(head)) {
+      if (equalWithWrapping(head, this.body[i])) {
+        if (DEBUG) console.log(`Snake self-collision at segment ${i}`);
         return true;
       }
     }
@@ -423,33 +429,33 @@ function processCollisions() {
       let headA = snakes[i].body[0];
       let headB = snakes[j].body[0];
       
-      // Head-to-head collision
-      if (headA.equals(headB)) {
+      // Head-to-head collision with proper grid wrapping
+      if (equalWithWrapping(headA, headB)) {
         if (DEBUG) console.log(`Head-to-head collision between snakes ${i} and ${j}`);
         if (snakes[i].body.length < snakes[j].body.length) {
           snakes[i].die();
         } else if (snakes[i].body.length > snakes[j].body.length) {
           snakes[j].die();
         } else {
-          // If equal length, both die.
+          // If equal length, both die
           snakes[i].die();
           snakes[j].die();
         }
         continue;
       }
       
-      // Check if snake i's head hits any segment (excluding head) of snake j.
+      // Check if snake i's head hits any segment of snake j
       for (let k = 1; k < snakes[j].body.length; k++) {
-        if (headA.equals(snakes[j].body[k])) {
+        if (equalWithWrapping(headA, snakes[j].body[k])) {
           if (DEBUG) console.log(`Snake ${i}'s head hit snake ${j}'s body`);
           snakes[i].die();
           break;
         }
       }
       
-      // Check if snake j's head hits any segment (excluding head) of snake i.
+      // Check if snake j's head hits any segment of snake i
       for (let k = 1; k < snakes[i].body.length; k++) {
-        if (headB.equals(snakes[i].body[k])) {
+        if (equalWithWrapping(headB, snakes[i].body[k])) {
           if (DEBUG) console.log(`Snake ${j}'s head hit snake ${i}'s body`);
           snakes[j].die();
           break;
@@ -947,4 +953,14 @@ window.addEventListener('load', function() {
   if (btnRandomize) {
     btnRandomize.addEventListener('click', randomizeParams);
   }
-}); 
+});
+
+// Add new helper function to properly check position equality with grid wrapping
+function equalWithWrapping(posA, posB) {
+  // Check if positions are equal considering grid wrapping
+  return (
+    ((posA.x + GRID_X) % GRID_X === (posB.x + GRID_X) % GRID_X) &&
+    ((posA.y + GRID_Y) % GRID_Y === (posB.y + GRID_Y) % GRID_Y) &&
+    ((posA.z + GRID_Z) % GRID_Z === (posB.z + GRID_Z) % GRID_Z)
+  );
+} 
