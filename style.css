@@ -1,0 +1,158 @@
+/* Reset CSS */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+/* Fullscreen layout */
+html, body {
+  width: 100%;
+  height: 100vh;
+  background: #0f172a; /* Tailwind slate-900 */
+}
+
+canvas {
+  display: block;
+}
+
+.control-panel {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(15, 23, 42, 0.5);
+    border-radius: 8px;
+    width: 280px;
+    color: white;
+    font-family: 'Consolas', 'Monaco', monospace;
+    z-index: 1000;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    transition: background-color 0.2s ease;
+}
+
+.control-panel:hover {
+    background: rgba(15, 23, 42, 1.0);
+}
+
+.panel-header {
+    padding: 12px 16px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.panel-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: normal;
+    letter-spacing: 0.5px;
+}
+
+.toggle-icon {
+    transition: transform 0.3s ease;
+    font-size: 18px;
+}
+
+.panel-content {
+    padding: 16px;
+    max-height: 0;
+    overflow: hidden;
+    transition: all 0.3s ease-out;
+    opacity: 0;
+}
+
+.panel-content.expanded {
+    max-height: 500px;
+    opacity: 1;
+    padding: 16px;
+}
+
+/* When collapsed, remove padding to prevent content showing */
+.panel-content:not(.expanded) {
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+.control-group {
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.control-group label {
+    flex: 1;
+    font-size: 14px;
+    white-space: nowrap;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.control-group input {
+    width: 80px;
+    padding: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    color: white;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    text-align: right;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.control-group input:focus {
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.control-group input::-webkit-inner-spin-button {
+    opacity: 0;
+}
+
+.control-group select {
+    width: 80px;
+    padding: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    color: white;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    outline: none;
+}
+
+.control-group select option {
+    background: rgb(15, 23, 42);
+    color: white;
+}
+
+.control-group input[type="checkbox"] {
+    width: 80px;
+    height: 20px;
+    accent-color: #3b82f6;
+}
+
+.restart-btn {
+    width: 100%;
+    padding: 8px;
+    background: #3b82f6;
+    border: none;
+    border-radius: 4px;
+    color: white;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    transition: background 0.2s;
+    margin-top: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: bold;
+}
+
+.restart-btn:hover {
+    background: #2563eb;
+} 

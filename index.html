@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Snake Game</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+  <script src="palettes.js"></script>
+</head>
+<body>
+  <div id="control-panel" class="control-panel">
+    <div class="panel-header" onclick="togglePanel()">
+      <h3>Parameters</h3>
+      <span class="toggle-icon">▾</span>
+    </div>
+    <div class="panel-content">
+      <div class="control-group">
+        <label for="numSnakes">Number of Snakes:</label>
+        <input type="number" id="numSnakes" value="100" min="1" max="1000">
+      </div>
+      <div class="control-group">
+        <label for="foodCount">Initial Food:</label>
+        <input type="number" id="foodCount" value="100" min="1" max="1000">
+      </div>
+      <div class="control-group">
+        <label for="snakeLength">Initial Snake Length:</label>
+        <input type="number" id="snakeLength" value="5" min="1" max="50">
+      </div>
+      <div class="control-group">
+        <label for="foodMaxAge">Food Lifespan (ms):</label>
+        <input type="number" id="foodMaxAge" value="10000" min="1000" max="60000">
+      </div>
+      <div class="control-group">
+        <label for="colorPalette">Color Palette:</label>
+        <select id="colorPalette">
+          <option value="default">Default</option>
+          <option value="miro">Miró</option>
+          <option value="magritte">Magritte</option>
+          <option value="soviet">Soviet Poster</option>
+          <option value="mondrian">Mondrian</option>
+          <option value="kandinsky">Kandinsky</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label for="clearBackground">Clear Background:</label>
+        <input type="checkbox" id="clearBackground" checked>
+      </div>
+      <button onclick="restartSimulation()" class="restart-btn">Restart Simulation</button>
+    </div>
+  </div>
+  <script src="sketch.js"></script>
+</body>
+</html> 
