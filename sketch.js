@@ -40,6 +40,7 @@ const FOOD_SPAWN_SPREAD = 2;     // spread (in grid cells) around the base cell
 let camEye, camCenter, globalFOV, globalAspect;
 const DEBUG = false; // Set to true to enable debug logs
 let fixedLights = {}; // Fixed light colors to avoid flickering
+let motionBlurAmount = 50;  // Value between 0-100 for plane transparency (default 50%)
 
 // Initialize grid dimensions in setup() based on window proportions
 function initializeGrid() {
@@ -110,7 +111,23 @@ function setup() {
 
 function draw() {
   if (shouldClearBackground) {
-    background(bgColor);
+    // Draw a large semi-transparent plane that covers the entire view
+    push();
+      // Reset the camera transformation to draw in screen space
+      resetMatrix();
+      // Move to screen center since plane is drawn from center
+      translate(width/2, height/2);
+      // Disable depth testing to ensure the plane is always drawn on top
+      noStroke();
+      let fadeColor = color(bgColor);
+      // Map motionBlurAmount (0-100) to alpha (255-0)
+      // When motionBlurAmount is 0, alpha is 255 (fully opaque = no trail)
+      // When motionBlurAmount is 100, alpha is 0 (fully transparent = full trail)
+      fadeColor.setAlpha(255 - (motionBlurAmount * 2.55));
+      fill(fadeColor);
+      // Draw a plane large enough to cover the entire screen
+      plane(width * 8, height * 8);  // Make it 8x larger to ensure full coverage
+    pop();
   }
   
   // Auto-adjust camera to frame all snakes
@@ -323,71 +340,75 @@ function updateAISnake(snake) {
   if (foods.length === 0) return;
   let head = snake.body[0];
   
-  // Find the food with minimum effective distance (distance weighted by age/freshness)
+  // Find the closest food using Manhattan distance (no age weighting)
   let closestFood = null;
-  let bestEffectiveDistance = Infinity;
-  let closestRealDistance = Infinity;
+  let minDistance = Infinity;
   
   for (let f of foods) {
     let d = abs(f.pos.x - head.x) + abs(f.pos.y - head.y) + abs(f.pos.z - head.z);
-    let age = millis() - f.birth;
-    // Freshness factor: 1 for new food, 0 when it reaches FOOD_MAX_AGE
-    let factor = constrain(map(age, 0, FOOD_MAX_AGE, 1, 0), 0, 1);
-    // Effective distance: lower is better.
-    let effectiveDistance = d / (factor + 0.1); // adding a small epsilon to avoid division by zero.
-    if (effectiveDistance < bestEffectiveDistance) {
-      bestEffectiveDistance = effectiveDistance;
+    if (d < minDistance) {
+      minDistance = d;
       closestFood = f;
-      closestRealDistance = d;
     }
   }
   
   if (!closestFood) return;
   
-  // Evaluate candidate moves (6 cardinal directions)
-  let candidates = [
-    createVector(1, 0, 0),
-    createVector(-1, 0, 0),
-    createVector(0, 1, 0),
-    createVector(0, -1, 0),
-    createVector(0, 0, 1),
-    createVector(0, 0, -1)
-  ];
+  // Calculate direction components to food
+  let dx = (closestFood.pos.x - head.x + GRID_X) % GRID_X;
+  if (dx > GRID_X/2) dx -= GRID_X;
+  let dy = (closestFood.pos.y - head.y + GRID_Y) % GRID_Y;
+  if (dy > GRID_Y/2) dy -= GRID_Y;
+  let dz = (closestFood.pos.z - head.z + GRID_Z) % GRID_Z;
+  if (dz > GRID_Z/2) dz -= GRID_Z;
   
-  let bestCandidateDist = Infinity;
-  let bestDir = snake.direction.copy();
+  // Determine primary direction based on largest component
+  let currentDir = snake.direction;
+  let newDir = currentDir.copy();
   
-  for (let cand of candidates) {
-    // Avoid direct reversal
-    if (cand.equals(p5.Vector.mult(snake.direction, -1))) continue;
+  // Only change direction if we're not already moving toward the food
+  let movingTowardFood = false;
+  if (currentDir.x !== 0 && Math.sign(currentDir.x) === Math.sign(dx)) movingTowardFood = true;
+  if (currentDir.y !== 0 && Math.sign(currentDir.y) === Math.sign(dy)) movingTowardFood = true;
+  if (currentDir.z !== 0 && Math.sign(currentDir.z) === Math.sign(dz)) movingTowardFood = true;
+  
+  if (!movingTowardFood) {
+    // Choose the largest absolute difference that doesn't result in a collision
+    let candidates = [];
+    if (abs(dx) > 0) candidates.push({dir: createVector(Math.sign(dx), 0, 0), val: abs(dx)});
+    if (abs(dy) > 0) candidates.push({dir: createVector(0, Math.sign(dy), 0), val: abs(dy)});
+    if (abs(dz) > 0) candidates.push({dir: createVector(0, 0, Math.sign(dz)), val: abs(dz)});
     
-    let candidateHead = p5.Vector.add(head, cand);
-    candidateHead.x = (candidateHead.x + GRID_X) % GRID_X;
-    candidateHead.y = (candidateHead.y + GRID_Y) % GRID_Y;
-    candidateHead.z = (candidateHead.z + GRID_Z) % GRID_Z;
+    // Sort by largest difference
+    candidates.sort((a, b) => b.val - a.val);
     
-    // Check for immediate self-collision
-    let collision = false;
-    for (let i = 0; i < snake.body.length - 1; i++) {
-      if (snake.body[i].equals(candidateHead)) {
-        collision = true;
+    // Try each direction until we find one that doesn't cause collision
+    for (let candidate of candidates) {
+      // Don't reverse direction
+      if (candidate.dir.equals(p5.Vector.mult(currentDir, -1))) continue;
+      
+      // Check if this move would cause collision
+      let nextPos = p5.Vector.add(head, candidate.dir);
+      nextPos.x = (nextPos.x + GRID_X) % GRID_X;
+      nextPos.y = (nextPos.y + GRID_Y) % GRID_Y;
+      nextPos.z = (nextPos.z + GRID_Z) % GRID_Z;
+      
+      let collision = false;
+      for (let i = 0; i < snake.body.length - 1; i++) {
+        if (snake.body[i].equals(nextPos)) {
+          collision = true;
+          break;
+        }
+      }
+      
+      if (!collision) {
+        newDir = candidate.dir;
         break;
       }
     }
-    if (collision) continue;
-    
-    let candDist = abs(closestFood.pos.x - candidateHead.x) +
-                   abs(closestFood.pos.y - candidateHead.y) +
-                   abs(closestFood.pos.z - candidateHead.z);
-    if (candDist < bestCandidateDist) {
-      bestCandidateDist = candDist;
-      bestDir = cand.copy();
-    }
   }
-  snake.setDirection(bestDir);
   
-  // Debug logging
-  if (DEBUG) console.log(`Snake targeting food at (${closestFood.pos.x}, ${closestFood.pos.y}, ${closestFood.pos.z}), real dist: ${closestRealDistance}, effective: ${bestEffectiveDistance.toFixed(2)}`);
+  snake.setDirection(newDir);
 }
 
 // Process collisions between snakes.
@@ -741,6 +762,7 @@ function updateParams() {
   INITIAL_SNAKE_LENGTH = parseInt(document.getElementById('snakeLength').value);
   FOOD_MAX_AGE = parseInt(document.getElementById('foodMaxAge').value);
   shouldClearBackground = document.getElementById('clearBackground').checked;
+  motionBlurAmount = parseInt(document.getElementById('motionBlur').value);
   currentPalette = document.getElementById('colorPalette').value;
   updatePalette();
 }
@@ -833,23 +855,28 @@ function updatePaletteDropdown() {
 
 // Spawn multiple food particles at grid cells determined by perspective.
 function spawnFoodUnderCursor() {
-  // Define a plane in world space where food should appear.
-  // Here we choose a plane with z = CLICK_PLANE_WORLD_Z,
-  // where CLICK_PLANE_WORLD_Z is set closer to the camera than the grid center.
-  let CLICK_PLANE_WORLD_Z = 0.4 * GRID_Z * cellSize; // adjust the factor if needed
+  // Place the plane at a fixed distance in front of the camera
+  let planeDistance = 1000; // Distance from camera to plane
+  
+  // Get plane point in front of camera
+  let planePoint = p5.Vector.add(
+    camEye,
+    p5.Vector.mult(p5.Vector.sub(camCenter, camEye).normalize(), planeDistance)
+  );
   
   // Compute normalized device coordinates (NDC) from mouse position.
   let ndcX = (mouseX / width) * 2 - 1;
   let ndcY = 1 - (mouseY / height) * 2;
   
   // Compute the ray direction in camera space.
-  // Assuming the camera looks along -z (as set in autoAdjustCamera).
   let rayDir = createVector(ndcX * tan(globalFOV / 2) * globalAspect, ndcY * tan(globalFOV / 2), -1);
   rayDir.normalize();
   
-  // Ray: R(t) = camEye + t * rayDir.
-  // Solve for t such that R(t).z = CLICK_PLANE_WORLD_Z.
-  let t = (CLICK_PLANE_WORLD_Z - camEye.z) / rayDir.z;
+  // Calculate intersection with plane
+  let planeNormal = p5.Vector.sub(camCenter, camEye).normalize();
+  let t = p5.Vector.dot(p5.Vector.sub(planePoint, camEye), planeNormal) / 
+         p5.Vector.dot(rayDir, planeNormal);
+  
   let intersect = p5.Vector.add(camEye, p5.Vector.mult(rayDir, t));
   
   // Convert the intersection point to grid indices.
