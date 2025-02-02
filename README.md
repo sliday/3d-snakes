@@ -2,7 +2,7 @@
 
 This project is a 3D simulation featuring snake-like agents in a dynamic, grid-based world. Built with p5.js, it showcases emergent behaviors, detailed collision handling, and a visually diverse aesthetic driven by creative color palettes.
 
-![3D Snake Game](https://github.com/user-attachments/assets/404ab9aa-2c5a-4d2b-88e7-f7c88ba95a7d)
+![CleanShot 2025-02-02 at 14 36 56](https://github.com/user-attachments/assets/ec8778b5-f16f-4607-a5e3-71505332ec1c)
 
 ## Overview
 
