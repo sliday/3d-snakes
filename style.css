@@ -155,4 +155,26 @@ canvas {
 
 .restart-btn:hover {
     background: #2563eb;
+}
+
+.control-button {
+  background-color: #333;
+  color: white;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  margin: 8px 0;
+  width: 100%;
+  transition: background-color 0.2s;
+  font-size: 90%;
+}
+
+.control-button:hover {
+  background-color: #666;
+}
+
+.control-button:active {
+  background-color: #222;
 } 

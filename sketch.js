@@ -10,7 +10,7 @@ let NUM_SNAKES = 100;           // Number of snakes
 let INITIAL_SNAKE_LENGTH = 5;  // Starting segments per snake
 let FOOD_COUNT = 100;            // Initial food cubes (sparse)
 const cellSize = 10;             // Size of each cell in pixels (fixed)
-const BG_COLOR = [15, 23, 42];  // Tailwind slate-900 for background
+let bgColor;  // Will be set from the palette in updatePalette()
 let FOOD_MAX_AGE = 10000;     // Max lifetime for food in ms (10 seconds)
 let shouldClearBackground = true;
 let currentPalette = 'default';  // Initial palette selection
@@ -38,6 +38,8 @@ const FOOD_SPAWN_INTERVAL = 100; // in milliseconds, adjust as desired
 const FOOD_SPAWN_COUNT = 3;      // number of food particles to spawn per event
 const FOOD_SPAWN_SPREAD = 2;     // spread (in grid cells) around the base cell
 let camEye, camCenter, globalFOV, globalAspect;
+const DEBUG = false; // Set to true to enable debug logs
+let fixedLights = {}; // Fixed light colors to avoid flickering
 
 // Initialize grid dimensions in setup() based on window proportions
 function initializeGrid() {
@@ -53,11 +55,11 @@ function initializeGrid() {
     GRID_Y = Math.floor(BASE_GRID_SIZE / aspectRatio);
     GRID_Z = BASE_GRID_SIZE;
   }
-  console.log(`Grid dimensions: ${GRID_X} x ${GRID_Y} x ${GRID_Z}`);
+  if (DEBUG) console.log(`Grid dimensions: ${GRID_X} x ${GRID_Y} x ${GRID_Z}`);
 }
 
 function setup() {
-  console.log('Starting game setup...');
+  if (DEBUG) console.log('Starting game setup...');
   // Initialize camera rotation angles
   rotX = -PI/6;
   rotY = PI/4;
@@ -67,7 +69,8 @@ function setup() {
   
   // Initialize color palette
   updatePalette();
-  console.log(`Initialized palette with ${palette.length} colors`);
+  if (DEBUG) console.log(`Initialized palette with ${palette.length} colors`);
+  updatePaletteDropdown();
   
   // Set up lighting system
   setupLights();
@@ -75,7 +78,7 @@ function setup() {
   // Initialize snakes
   let snakesPerRow = ceil(sqrt(NUM_SNAKES));
   let spacing = floor(GRID_X / snakesPerRow);
-  console.log(`Creating ${NUM_SNAKES} snakes, ${snakesPerRow} per row, spacing: ${spacing}`);
+  if (DEBUG) console.log(`Creating ${NUM_SNAKES} snakes, ${snakesPerRow} per row, spacing: ${spacing}`);
   
   for (let i = 0; i < NUM_SNAKES; i++) {
     let row = floor(i / snakesPerRow);
@@ -90,7 +93,7 @@ function setup() {
       createVector(0,1,0), createVector(0,-1,0),
       createVector(0,0,1), createVector(0,0,-1)
     ]);
-    console.log(`Snake ${i}: pos(${pos.x}, ${pos.y}, ${pos.z}), dir(${dir.x}, ${dir.y}, ${dir.z})`);
+    if (DEBUG) console.log(`Snake ${i}: pos(${pos.x}, ${pos.y}, ${pos.z}), dir(${dir.x}, ${dir.y}, ${dir.z})`);
     snakes.push(new Snake(pos, dir, random(palette)));
   }
   
@@ -98,16 +101,16 @@ function setup() {
   for (let i = 0; i < FOOD_COUNT; i++) {
     spawnFood();
   }
-  console.log(`Spawned ${FOOD_COUNT} initial food items`);
+  if (DEBUG) console.log(`Spawned ${FOOD_COUNT} initial food items`);
   
   lastMoveTime = millis();
-  console.log('Setup complete');
+  if (DEBUG) console.log('Setup complete');
   blendMode(BLEND);
 }
 
 function draw() {
   if (shouldClearBackground) {
-    background(...BG_COLOR);
+    background(bgColor);
   }
   
   // Auto-adjust camera to frame all snakes
@@ -127,18 +130,17 @@ function draw() {
   // Center the grid
   translate(-GRID_X * cellSize/2, -GRID_Y * cellSize/2, -GRID_Z * cellSize/2);
   
-  // Draw food with shrink effect using a pyramid shape,
-  // and apply a slow rotation driven by Perlin noise.
+  // Draw food with a shrink effect using a pyramid shape,
+  // applying a slow rotation driven by Perlin noise.
   noStroke();
   for (let f of foods) {
     push();
-    fill(34, 197, 94); // Tailwind green-500
+    fill(f.col); // Use the food's assigned color from the palette.
     translate(f.pos.x * cellSize, f.pos.y * cellSize, f.pos.z * cellSize);
     // Compute remaining life factor (1 = full size, 0 = expired)
     let age = millis() - f.birth;
     let factor = constrain(map(age, 0, FOOD_MAX_AGE, 1, 0), 0, 1);
-    // Apply slow rotation: 
-    // Use Perlin noise (with an offset based on f.birth) for smooth, random motion.
+    // Apply slow rotation using Perlin noise for smooth, random motion.
     let rotXAngle = noise(frameCount/1000 + f.birth) * TWO_PI;
     let rotYAngle = noise(frameCount/1000 + f.birth + 100) * TWO_PI;
     let rotZAngle = noise(frameCount/1000 + f.birth + 200) * TWO_PI;
@@ -202,7 +204,7 @@ function handleCameraMovement() {
 // --- Snake Class ---
 class Snake {
   constructor(startPos, initialDirection, col) {
-    console.log(`Creating snake at (${startPos.x}, ${startPos.y}, ${startPos.z})`);
+    if (DEBUG) console.log(`Creating snake at (${startPos.x}, ${startPos.y}, ${startPos.z})`);
     this.color = col;
     this.body = [];
     this.direction = initialDirection.copy();
@@ -214,7 +216,7 @@ class Snake {
       seg.sub(p5.Vector.mult(this.direction, i));
       this.body.push(seg);
     }
-    console.log(`Snake created with ${this.body.length} segments`);
+    if (DEBUG) console.log(`Snake created with ${this.body.length} segments`);
   }
   
   // Draw the snake (each body segment as a box).
@@ -272,13 +274,13 @@ class Snake {
   
   // On self-collision, convert every 2nd voxel (odd-indexed) into food and remove them.
   handleSelfCollision() {
-    console.log(`Snake self-collision! Length before: ${this.body.length}`);
+    if (DEBUG) console.log(`Snake self-collision! Length before: ${this.body.length}`);
     this.die();
   }
   
   // When the snake dies, convert all voxels into food.
   die() {
-    console.log(`Snake dying, converting ${this.body.length} segments to food`);
+    if (DEBUG) console.log(`Snake dying, converting ${this.body.length} segments to food`);
     this.alive = false;
     for (let seg of this.body) {
       spawnFoodAt(seg.x, seg.y, seg.z);
@@ -290,7 +292,7 @@ class Snake {
 
 function updateGame() {
   const aliveCount = snakes.filter(s => s.alive).length;
-  console.log(`Update cycle: ${aliveCount} snakes alive, ${foods.length} food items`);
+  if (DEBUG) console.log(`Update cycle: ${aliveCount} snakes alive, ${foods.length} food items`);
   
   // Update each snake: determine direction, move, check for food, and self-collision.
   snakes.forEach((snake, index) => {
@@ -299,7 +301,7 @@ function updateGame() {
     snake.move();
     checkFoodCollision(snake);
     if (snake.checkSelfCollision()) {
-      console.log(`Snake ${index} detected self-collision`);
+      if (DEBUG) console.log(`Snake ${index} detected self-collision`);
       snake.handleSelfCollision();
     }
   });
@@ -385,7 +387,7 @@ function updateAISnake(snake) {
   snake.setDirection(bestDir);
   
   // Debug logging
-  console.log(`Snake targeting food at (${closestFood.pos.x}, ${closestFood.pos.y}, ${closestFood.pos.z}), real dist: ${closestRealDistance}, effective: ${bestEffectiveDistance.toFixed(2)}`);
+  if (DEBUG) console.log(`Snake targeting food at (${closestFood.pos.x}, ${closestFood.pos.y}, ${closestFood.pos.z}), real dist: ${closestRealDistance}, effective: ${bestEffectiveDistance.toFixed(2)}`);
 }
 
 // Process collisions between snakes.
@@ -403,7 +405,7 @@ function processCollisions() {
       
       // Check head-to-head collision (slither.io style)
       if (headA.equals(headB)) {
-        console.log(`Head-to-head collision between snakes ${i} and ${j}`);
+        if (DEBUG) console.log(`Head-to-head collision between snakes ${i} and ${j}`);
         if (snakes[i].body.length < snakes[j].body.length) {
           snakes[i].die();
         } else if (snakes[i].body.length > snakes[j].body.length) {
@@ -420,7 +422,7 @@ function processCollisions() {
       // Snake A's head hitting Snake B's body
       for (let k = 1; k < snakes[j].body.length; k++) {
         if (headA.equals(snakes[j].body[k])) {
-          console.log(`Snake ${i}'s head hit snake ${j}'s body`);
+          if (DEBUG) console.log(`Snake ${i}'s head hit snake ${j}'s body`);
           snakes[i].die();
           break;
         }
@@ -429,7 +431,7 @@ function processCollisions() {
       // Snake B's head hitting Snake A's body
       for (let k = 1; k < snakes[i].body.length; k++) {
         if (headB.equals(snakes[i].body[k])) {
-          console.log(`Snake ${j}'s head hit snake ${i}'s body`);
+          if (DEBUG) console.log(`Snake ${j}'s head hit snake ${i}'s body`);
           snakes[j].die();
           break;
         }
@@ -444,7 +446,7 @@ function checkFoodCollision(snake) {
   for (let i = foods.length - 1; i >= 0; i--) {
     let f = foods[i];
     if (head.equals(f.pos)) {
-      console.log(`Snake ate food at (${f.pos.x}, ${f.pos.y}, ${f.pos.z}), length: ${snake.body.length}`);
+      if (DEBUG) console.log(`Snake ate food at (${f.pos.x}, ${f.pos.y}, ${f.pos.z}), length: ${snake.body.length}`);
       foods.splice(i, 1);
       snake.grow();
       // Spawn new food immediately to maintain food density
@@ -471,7 +473,7 @@ function spawnFood() {
       }
     }
   }
-  foods.push({ pos: pos, birth: millis() });
+  foods.push({ pos: pos, birth: millis(), col: palette[0] });
 }
 
 // Spawn food at a specific grid cell.
@@ -487,24 +489,11 @@ function spawnFoodAt(x, y, z) {
       return; // Don't spawn duplicate food
     }
   }
-  foods.push({ pos: pos, birth: millis() });
+  foods.push({ pos: pos, birth: millis(), col: palette[0] });
 }
 
 function drawDebugInfo() {
-  // Switch to 2D mode for text
-  push();
-  camera();
-  noLights();
-  fill(255);
-  noStroke();
-  textSize(16);
-  textAlign(LEFT, TOP);
-  text(`FPS: ${frameRate().toFixed(1)}`, 10, 10);
-  text(`Snakes Alive: ${snakes.filter(s => s.alive).length}`, 10, 30);
-  text(`Food Count: ${foods.length}`, 10, 50);
-  text('\nControls:\nWASD: Move in camera direction\nQ/E: Up/Down\nDrag: Look around\nMouse Wheel: Zoom', 10, 70);
-  text(`Zoom: ${(zoom * 100).toFixed(0)}%`, 10, 150);
-  pop();
+  // Debug text disabled.
 }
 
 function windowResized() {
@@ -518,38 +507,22 @@ function mouseWheel(event) {
 }
 
 function setupLights() {
-  // Ambient light for base illumination
-  ambientLight(50);
+  // Use fixed ambient and directional light (do not re-randomize each frame)
+  ambientLight(80);
   
-  const gridHalfX = GRID_X * cellSize / 2;
-  const gridHalfY = GRID_Y * cellSize / 2;
-  const gridHalfZ = GRID_Z * cellSize / 2;
-  const lightIntensity = 255;
+  // Main directional light from camera direction using fixed main light color.
+  directionalLight(red(fixedLights.main), green(fixedLights.main), blue(fixedLights.main),
+                   sin(rotY), sin(rotX), -cos(rotY)*cos(rotX));
   
-  // Position lights on each face of the grid cube
-  // Front and Back
-  for (let x = -gridHalfX; x <= gridHalfX; x += gridHalfX * 2) {
-    for (let y = -gridHalfY; y <= gridHalfY; y += gridHalfY * 2) {
-      pointLight(lightIntensity, lightIntensity, lightIntensity, x, y, -gridHalfZ);
-      pointLight(lightIntensity, lightIntensity, lightIntensity, x, y, gridHalfZ);
-    }
-  }
-  
-  // Left and Right
-  for (let y = -gridHalfY; y <= gridHalfY; y += gridHalfY * 2) {
-    for (let z = -gridHalfZ; z <= gridHalfZ; z += gridHalfZ * 2) {
-      pointLight(lightIntensity, lightIntensity, lightIntensity, -gridHalfX, y, z);
-      pointLight(lightIntensity, lightIntensity, lightIntensity, gridHalfX, y, z);
-    }
-  }
-  
-  // Top and Bottom
-  for (let x = -gridHalfX; x <= gridHalfX; x += gridHalfX * 2) {
-    for (let z = -gridHalfZ; z <= gridHalfZ; z += gridHalfZ * 2) {
-      pointLight(lightIntensity, lightIntensity, lightIntensity, x, -gridHalfY, z);
-      pointLight(lightIntensity, lightIntensity, lightIntensity, x, gridHalfY, z);
-    }
-  }
+  // Supporting directional lights using fixed colors.
+  directionalLight(red(fixedLights.front), green(fixedLights.front), blue(fixedLights.front),
+                   -cos(rotY), sin(rotX), -sin(rotY)*cos(rotX));
+  directionalLight(red(fixedLights.back), green(fixedLights.back), blue(fixedLights.back),
+                   cos(rotY), sin(rotX), sin(rotY)*cos(rotX));
+  directionalLight(red(fixedLights.top), green(fixedLights.top), blue(fixedLights.top),
+                    0, 1, 0);    // Light from above
+  directionalLight(red(fixedLights.bottom), green(fixedLights.bottom), blue(fixedLights.bottom),
+                    0, -1, 0); // Light from below
 }
 
 function mousePressed() {
@@ -622,7 +595,7 @@ function checkFoodClusters() {
       // Spawn a new 1-cell snake at this position.
       let snake = spawnSnakeAt(newPos);
       snakes.push(snake);
-      console.log(`Cluster of 3 food turned into a snake at (${newPos.x}, ${newPos.y}, ${newPos.z})`);
+      if (DEBUG) console.log(`Cluster of 3 food turned into a snake at (${newPos.x}, ${newPos.y}, ${newPos.z})`);
       indicesToRemove.push(...cluster);
     }
   }
@@ -781,7 +754,7 @@ function updateParams() {
 function restartSimulation() {
   updateParams();
   // Force clear background on restart
-  background(...BG_COLOR);
+  background(bgColor);
   // Clear existing arrays
   snakes = [];
   foods = [];
@@ -831,6 +804,36 @@ function togglePanel() {
 // Update the color palette array from the selected palette
 function updatePalette() {
   palette = PALETTES[currentPalette].colors.map(c => color(c));
+  // Update background color from the palette's bg property.
+  bgColor = PALETTES[currentPalette].bg;
+  
+  // Precompute fixed light colors (choose once per palette update)
+  fixedLights.main  = color(255, 255, 255); // Main directional light (white)
+  fixedLights.front = random(palette);
+  fixedLights.back  = random(palette);
+  fixedLights.top   = random(palette);
+  fixedLights.bottom= random(palette);
+}
+
+// Populate the color palette dropdown with available palettes from PALETTES
+function updatePaletteDropdown() {
+  let select = document.getElementById('colorPalette');
+  if (select) {
+    // Clear out any existing options.
+    select.innerHTML = '';
+    // Iterate through all palettes defined in PALETTES.
+    for (let key in PALETTES) {
+      if (PALETTES.hasOwnProperty(key)) {
+        let option = document.createElement('option');
+        option.value = key;
+        option.textContent = PALETTES[key].name;
+        if (key === currentPalette) {
+          option.selected = true;
+        }
+        select.appendChild(option);
+      }
+    }
+  }
 }
 
 // Spawn multiple food particles at grid cells determined by perspective.
@@ -869,4 +872,57 @@ function spawnFoodUnderCursor() {
     let gridZ = constrain(baseZ + offsetZ, 0, GRID_Z - 1);
     spawnFoodAt(gridX, gridY, gridZ);
   }
-} 
+}
+
+// Randomize simulation parameters while ensuring (NUM_SNAKES * INITIAL_SNAKE_LENGTH < 10000)
+function randomizeParams() {
+  // Randomize snake length between 3 and 20.
+  let snakeLength = floor(random(3, 21));
+  // Maximum number of snakes is floor(10000 / snakeLength)
+  let maxSnakes = floor(10000 / snakeLength);
+  // Ensure we have at least 10 snakes but no more than maxSnakes
+  let numSnakes = floor(random(10, min(maxSnakes + 1, 1000)));
+
+  // Randomize additional parameters.
+  let foodCount = floor(random(50, 301));         // Food count between 50 and 300.
+  let foodMaxAge = floor(random(5000, 20001));    // Food max age between 5000 and 20000.
+
+  // Randomize palette selection
+  let paletteKeys = Object.keys(PALETTES);
+  currentPalette = random(paletteKeys);
+
+  if (DEBUG) {
+    console.log(`Randomized params: snakes=${numSnakes}, length=${snakeLength}, ` +
+                `product=${numSnakes * snakeLength}, foodCount=${foodCount}, ` +
+                `palette=${currentPalette}`);
+  }
+
+  // Update global simulation parameters.
+  NUM_SNAKES = numSnakes;
+  INITIAL_SNAKE_LENGTH = snakeLength;
+  FOOD_COUNT = foodCount;
+  FOOD_MAX_AGE = foodMaxAge;
+
+  // Update control panel UI if available.
+  if (document.getElementById('numSnakes'))
+    document.getElementById('numSnakes').value = numSnakes;
+  if (document.getElementById('snakeLength'))
+    document.getElementById('snakeLength').value = snakeLength;
+  if (document.getElementById('foodCount'))
+    document.getElementById('foodCount').value = foodCount;
+  if (document.getElementById('foodMaxAge'))
+    document.getElementById('foodMaxAge').value = foodMaxAge;
+  if (document.getElementById('colorPalette'))
+    document.getElementById('colorPalette').value = currentPalette;
+
+  // Restart simulation with new parameters.
+  restartSimulation();
+}
+
+// Attach randomize button event listener after page load.
+window.addEventListener('load', function() {
+  let btnRandomize = document.getElementById('btnRandomize');
+  if (btnRandomize) {
+    btnRandomize.addEventListener('click', randomizeParams);
+  }
+}); 
