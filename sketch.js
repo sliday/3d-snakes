@@ -12,7 +12,6 @@ let FOOD_COUNT = 100;            // Initial food cubes (sparse)
 const cellSize = 10;             // Size of each cell in pixels (fixed)
 let bgColor;  // Will be set from the palette in updatePalette()
 let FOOD_MAX_AGE = 10000;     // Max lifetime for food in ms (10 seconds)
-let shouldClearBackground = true;
 let currentPalette = 'default';  // Initial palette selection
 
 // Camera control variables
@@ -70,8 +69,19 @@ let foodVelocities = new Map(); // Store velocities for each food item
 const FRICTION = 0.98;  // Damping factor for velocities
 const MAX_VELOCITY = 0.5;  // Maximum velocity magnitude
 
-// In setup() or at the top with other globals
-let clearBackgroundAlpha = 255; // Full opacity by default
+// At the top with other global variables
+let snakeStyle = 'cubes';  // New style selector: either 'cubes' or 'dots'
+
+// Add PHI constant for scaling (golden ratio)
+const PHI = 1.618;
+
+// Add helper function for slight color shift
+function shiftColor(c, amount) {
+  let r = red(c) + amount;
+  let g = green(c) + amount;
+  let b = blue(c) + amount;
+  return color(constrain(r, 0, 255), constrain(g, 0, 255), constrain(b, 0, 255));
+}
 
 // Initialize grid dimensions in setup() based on window proportions
 function initializeGrid() {
@@ -98,6 +108,9 @@ function setup() {
   
   initializeGrid();
   createCanvas(windowWidth, windowHeight, WEBGL);
+  
+  // Choose a random color palette from available palettes in PALETTES.
+  currentPalette = random(Object.keys(PALETTES));
   
   // Initialize color palette
   updatePalette();
@@ -141,12 +154,23 @@ function setup() {
 }
 
 function draw() {
-  // Clear or draw semi-transparent background based on settings
-  if (shouldClearBackground) {
-    // Convert motion blur (0-1) to alpha (255-0)
-    clearBackgroundAlpha = 255 - (motionBlurAmount * 255);
-    background(red(bgColor), green(bgColor), blue(bgColor), clearBackgroundAlpha);
-  }
+  // Ensure motionBlurAmount stays within 0-100 range
+  motionBlurAmount = constrain(motionBlurAmount, 0, 100);
+  
+  // First, handle the motion blur effect
+  push();  // Save the current transformation state
+    // Reset the matrix and set up 2D drawing mode
+    resetMatrix();
+    // In WEBGL mode, translate to top-left corner (since WEBGL uses center as origin)
+    translate(-width/2, -height/2);
+    // Set up for 2D drawing
+    noStroke();
+    // Map motionBlurAmount (0-100) to alpha (255-0)
+    let alpha = map(motionBlurAmount, 0, 100, 255, 0);
+    fill(red(bgColor), green(bgColor), blue(bgColor), alpha);
+    // Draw the overlay rectangle to exactly cover the screen
+    rect(-width*16, -height*16, width*32, height*32);
+  pop();  // Restore the transformation state
   
   // Auto-adjust camera to frame all snakes
   autoAdjustCamera();
@@ -160,44 +184,47 @@ function draw() {
     lastMoveTime = millis();
   }
   
-  // Draw everything
-  push();
-  // Center the grid
-  translate(-GRID_X * cellSize/2, -GRID_Y * cellSize/2, -GRID_Z * cellSize/2);
-  
-  // Draw food with a shrink effect using a pyramid shape,
-  // applying a slow rotation driven by Perlin noise.
-  noStroke();
-  for (let f of foods) {
-    push();
-    fill(f.col); // Use the food's assigned color from the palette.
-    translate(f.pos.x * cellSize, f.pos.y * cellSize, f.pos.z * cellSize);
-    // Compute remaining life factor (1 = full size, 0 = expired)
-    let age = millis() - f.birth;
-    let factor = constrain(map(age, 0, FOOD_MAX_AGE, 1, 0), 0, 1);
-    // Apply slow rotation using Perlin noise for smooth, random motion.
-    let rotXAngle = noise(frameCount/1000 + f.birth) * TWO_PI;
-    let rotYAngle = noise(frameCount/1000 + f.birth + 100) * TWO_PI;
-    let rotZAngle = noise(frameCount/1000 + f.birth + 200) * TWO_PI;
-    rotateX(rotXAngle);
-    rotateY(rotYAngle);
-    rotateZ(rotZAngle);
-    // Draw a pyramid scaled by the remaining life factor.
-    drawPyramid(cellSize * factor);
-    pop();
-  }
-  
-  // Draw snakes
-  for (let s of snakes) {
-    s.draw();
-  }
-  pop();
+  // Draw game elements
+  push();  // Save state before grid translation
+    // Center the grid
+    translate(-GRID_X * cellSize/2, -GRID_Y * cellSize/2, -GRID_Z * cellSize/2);
+    
+    // Draw food
+    for (let f of foods) {
+      push();  // Save state for each food item
+        translate(f.pos.x * cellSize, f.pos.y * cellSize, f.pos.z * cellSize);
+        if (snakeStyle === 'dots') {
+          // Draw food as dots
+          stroke(f.col);
+          strokeWeight(4);
+          point(0, 0);
+        } else {
+          // Draw food as pyramids
+          fill(f.col);
+          noStroke();
+          let age = millis() - f.birth;
+          let factor = constrain(map(age, 0, FOOD_MAX_AGE, 1, 0), 0, 1);
+          let rotXAngle = noise(frameCount/1000 + f.birth) * TWO_PI;
+          let rotYAngle = noise(frameCount/1000 + f.birth + 100) * TWO_PI;
+          let rotZAngle = noise(frameCount/1000 + f.birth + 200) * TWO_PI;
+          rotateX(rotXAngle);
+          rotateY(rotYAngle);
+          rotateZ(rotZAngle);
+          drawPyramid(cellSize * factor);
+        }
+      pop();  // Restore state after drawing food
+    }
+    
+    // Draw snakes
+    for (let s of snakes) {
+      s.draw();
+    }
+  pop();  // Restore state after drawing grid
   
   // Draw debug overlay
   drawDebugInfo();
   
-  // Spawn food on click-and-hold: when the mouse is pressed, 
-  // spawn food at the cursor's grid cell at a fixed interval.
+  // Handle food spawning on mouse press
   if (mouseIsPressed) {
     let now = millis();
     if (now - lastFoodSpawnTime > FOOD_SPAWN_INTERVAL) {
@@ -242,7 +269,12 @@ function handleCameraMovement() {
 class Snake {
   constructor(startPos, initialDirection, col) {
     if (DEBUG) console.log(`Creating snake at (${startPos.x}, ${startPos.y}, ${startPos.z})`);
-    this.color = col;
+    this.col = col;
+    // Pick two dot colors: foreground uses the snake's base color,
+    // background is chosen from the current palette (excluding the base color)
+    this.dotForeground = this.col;
+    let available = palette.filter(c => c !== this.col);
+    this.dotBackground = available.length > 0 ? random(available) : this.col;
     this.body = [];
     this.direction = initialDirection.copy();
     this.pendingDirection = initialDirection.copy();
@@ -260,14 +292,30 @@ class Snake {
   draw() {
     if (!this.alive) return;
     
-    // Draw current snake body
-    noStroke();
-    fill(this.color);
     for (let seg of this.body) {
-      push();
-      translate(seg.x * cellSize, seg.y * cellSize, seg.z * cellSize);
-      box(cellSize);
-      pop();
+      if (snakeStyle === 'dots') {
+        push();
+        // Place the segment correctly in world space
+        translate(seg.x * cellSize, seg.y * cellSize, seg.z * cellSize);
+
+        // Draw second dot with the snake's background color
+        let offset = (cellSize * 0.33) / PHI;
+        stroke(this.dotBackground);
+        point(offset, offset);
+                
+        // Draw first dot using the snake's foreground color
+        stroke(this.dotForeground);
+        strokeWeight(8 / PHI);
+        point(0, 0);
+        pop();
+      } else {
+        push();
+        translate(seg.x * cellSize, seg.y * cellSize, seg.z * cellSize);
+        fill(this.col);
+        noStroke(); // Ensure no stroke is applied in Cubes mode.
+        box(cellSize * 0.9);
+        pop();
+      }
     }
   }
   
@@ -358,29 +406,22 @@ function updateGame() {
   updateFoods();
 }
 
-// AI: Update snake's direction by chasing the food with the lowest effective distance.
-// The effective distance is determined by the Manhattan distance divided by (factor + 0.1),
-// where factor = constrain(map(age, 0, FOOD_MAX_AGE, 1, 0), 0, 1), i.e. 1 for fresh food and 0 near expiration.
+// AI: Update snake's direction using classic snake game logic
 function updateAISnake(snake) {
   if (foods.length === 0) return;
   let head = snake.body[0];
   
-  // Find closest food using wrapped distance
+  // Find closest food using grid distance (no wrapping)
   let closestFood = null;
   let minDistance = Infinity;
   
   for (let food of foods) {
-    // Calculate wrapped distances
-    let dx = (food.pos.x - head.x + GRID_X) % GRID_X;
-    if (dx > GRID_X/2) dx -= GRID_X;
+    // Calculate direct grid distance
+    let dx = Math.abs(food.pos.x - head.x);
+    let dy = Math.abs(food.pos.y - head.y);
+    let dz = Math.abs(food.pos.z - head.z);
+    let distance = dx + dy + dz;  // Manhattan distance
     
-    let dy = (food.pos.y - head.y + GRID_Y) % GRID_Y;
-    if (dy > GRID_Y/2) dy -= GRID_Y;
-    
-    let dz = (food.pos.z - head.z + GRID_Z) % GRID_Z;
-    if (dz > GRID_Z/2) dz -= GRID_Z;
-    
-    let distance = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
     if (distance < minDistance) {
       minDistance = distance;
       closestFood = food;
@@ -389,69 +430,37 @@ function updateAISnake(snake) {
   
   if (!closestFood) return;
   
-  // Calculate direction to food with wrapping
-  let dx = (closestFood.pos.x - head.x + GRID_X) % GRID_X;
-  if (dx > GRID_X/2) dx -= GRID_X;
+  // Current direction vector components
+  let currentDirX = snake.direction.x;
+  let currentDirY = snake.direction.y;
+  let currentDirZ = snake.direction.z;
   
-  let dy = (closestFood.pos.y - head.y + GRID_Y) % GRID_Y;
-  if (dy > GRID_Y/2) dy -= GRID_Y;
+  // Calculate direction to food
+  let dx = closestFood.pos.x - head.x;
+  let dy = closestFood.pos.y - head.y;
+  let dz = closestFood.pos.z - head.z;
   
-  let dz = (closestFood.pos.z - head.z + GRID_Z) % GRID_Z;
-  if (dz > GRID_Z/2) dz -= GRID_Z;
-  
-  let currentDir = snake.direction;
-  let moves = [];
-  
-  // First, try continuing in current direction if it makes progress
-  if (isMovingTowardFood(currentDir, dx, dy, dz)) {
-    moves.push({dir: currentDir, priority: 4}); // Highest priority for continuing straight
+  // Prioritize current direction if it leads to food
+  if ((dx > 0 && currentDirX > 0) || (dx < 0 && currentDirX < 0) ||
+      (dy > 0 && currentDirY > 0) || (dy < 0 && currentDirY < 0) ||
+      (dz > 0 && currentDirZ > 0) || (dz < 0 && currentDirZ < 0)) {
+    return; // Keep current direction
   }
   
-  // Then add moves based on largest distance, but with lower priority
-  let distances = [
-    {axis: 'x', value: dx, dist: Math.abs(dx)},
-    {axis: 'y', value: dy, dist: Math.abs(dy)},
-    {axis: 'z', value: dz, dist: Math.abs(dz)}
-  ].sort((a, b) => b.dist - a.dist);  // Sort by largest distance first
+  // Try to move along the axis with largest distance first
+  let newDir = createVector(0, 0, 0);
   
-  // Add moves in order of distance, with decreasing priority
-  for (let i = 0; i < distances.length; i++) {
-    if (distances[i].dist > 0) {
-      let dir = createVector(0, 0, 0);
-      dir[distances[i].axis] = Math.sign(distances[i].value);
-      // Don't add if it's opposite to current direction
-      if (!dir.equals(p5.Vector.mult(currentDir, -1))) {
-        moves.push({dir: dir, priority: 3 - i}); // Priority 3,2,1 for distance-based moves
-      }
-    }
+  if (Math.abs(dx) >= Math.abs(dy) && Math.abs(dx) >= Math.abs(dz)) {
+    newDir.x = Math.sign(dx);
+  } else if (Math.abs(dy) >= Math.abs(dx) && Math.abs(dy) >= Math.abs(dz)) {
+    newDir.y = Math.sign(dy);
+  } else {
+    newDir.z = Math.sign(dz);
   }
   
-  // Try moves in order of priority
-  for (let move of moves) {
-    if (isSafeMove(snake, move.dir)) {
-      snake.setDirection(move.dir);
-      return;
-    }
-  }
-  
-  // If no good moves found, try any safe move except reversing
-  let fallbackMoves = [
-    createVector(1, 0, 0), createVector(-1, 0, 0),
-    createVector(0, 1, 0), createVector(0, -1, 0),
-    createVector(0, 0, 1), createVector(0, 0, -1)
-  ].filter(dir => !dir.equals(p5.Vector.mult(currentDir, -1)));
-  
-  // Shuffle fallback moves to avoid predictable behavior when stuck
-  for (let i = fallbackMoves.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [fallbackMoves[i], fallbackMoves[j]] = [fallbackMoves[j], fallbackMoves[i]];
-  }
-  
-  for (let dir of fallbackMoves) {
-    if (isSafeMove(snake, dir)) {
-      snake.setDirection(dir);
-      return;
-    }
+  // Only change direction if the new direction is safe
+  if (isSafeMove(snake, newDir)) {
+    snake.setDirection(newDir);
   }
 }
 
@@ -459,13 +468,12 @@ function updateAISnake(snake) {
 function isSafeMove(snake, dir) {
   let head = snake.body[0];
   let nextPos = p5.Vector.add(head, dir);
-  nextPos.x = (nextPos.x + GRID_X) % GRID_X;
-  nextPos.y = (nextPos.y + GRID_Y) % GRID_Y;
-  nextPos.z = (nextPos.z + GRID_Z) % GRID_Z;
   
-  // Check collision with own body (skip last few segments to allow tighter turns)
-  for (let i = 2; i < snake.body.length - 1; i++) {
-    if (equalWithWrapping(nextPos, snake.body[i])) {
+  // Check collision with own body (except tail which will move)
+  for (let i = 0; i < snake.body.length - 1; i++) {
+    if (nextPos.x === snake.body[i].x && 
+        nextPos.y === snake.body[i].y && 
+        nextPos.z === snake.body[i].z) {
       return false;
     }
   }
@@ -474,22 +482,15 @@ function isSafeMove(snake, dir) {
   for (let otherSnake of snakes) {
     if (!otherSnake.alive || otherSnake === snake) continue;
     for (let seg of otherSnake.body) {
-      if (equalWithWrapping(nextPos, seg)) {
+      if (nextPos.x === seg.x && 
+          nextPos.y === seg.y && 
+          nextPos.z === seg.z) {
         return false;
       }
     }
   }
   
   return true;
-}
-
-// Helper function to check if current direction is making progress toward food
-function isMovingTowardFood(dir, dx, dy, dz) {
-  // Check if moving along this direction reduces distance to food
-  if (dir.x !== 0) return Math.sign(dir.x) === Math.sign(dx);
-  if (dir.y !== 0) return Math.sign(dir.y) === Math.sign(dy);
-  if (dir.z !== 0) return Math.sign(dir.z) === Math.sign(dz);
-  return false;
 }
 
 // Process collisions between snakes.
@@ -540,14 +541,18 @@ function processCollisions() {
   }
 }
 
-// Handle food collision: if a snake's head reaches a food's position, grow the snake and remove the food.
+// Simplify food collision to basic 2D snake game style
 function checkFoodCollision(snake) {
   let head = snake.body[0];
   for (let i = foods.length - 1; i >= 0; i--) {
     let food = foods[i];
-    if (equalWithWrapping(head, food.pos)) {
+    // Simple position comparison without wrapping
+    if (head.x === food.pos.x && 
+        head.y === food.pos.y && 
+        head.z === food.pos.z) {
       snake.grow();
       removeFoodItem(food);
+      // Spawn new food at random location
       spawnFood();
       break;
     }
@@ -594,6 +599,22 @@ function drawDebugInfo() {
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
+  // Recalculate grid dimensions based on new window size
+  initializeGrid();
+  // Reset camera parameters to adjust to new window size
+  targetCamParams = {
+    centerX: 0,
+    centerY: 0,
+    centerZ: 0,
+    distance: 500,
+    lastUpdate: 0
+  };
+  currentCamParams = {
+    centerX: 0,
+    centerY: 0,
+    centerZ: 0,
+    distance: 500
+  };
 }
 
 function mouseWheel(event) {
@@ -896,10 +917,10 @@ function updateParams() {
   FOOD_COUNT = parseInt(document.getElementById('foodCount').value);
   INITIAL_SNAKE_LENGTH = parseInt(document.getElementById('snakeLength').value);
   FOOD_MAX_AGE = parseInt(document.getElementById('foodMaxAge').value);
-  shouldClearBackground = document.getElementById('clearBackground').checked;
   motionBlurAmount = parseFloat(document.getElementById('motionBlur').value);
   currentPalette = document.getElementById('colorPalette').value;
   gravityStrength = parseInt(document.getElementById('gravityStrength').value);
+  snakeStyle = document.getElementById('snakeStyle').value;
   updatePalette();
 }
 
@@ -1067,7 +1088,7 @@ function equalWithWrapping(posA, posB) {
   );
 }
 
-// Simplified gravity update function
+// Update gravity effects with better center respawn
 function updateGravityEffects() {
   if (gravityStrength === 0) return;
   
@@ -1076,36 +1097,56 @@ function updateGravityEffects() {
   lastGravityUpdate = now;
   
   // Calculate center of the volume
-  let center = createVector(GRID_X/2, GRID_Y/2, GRID_Z/2);
+  let center = createVector(
+    Math.floor(GRID_X/2), 
+    Math.floor(GRID_Y/2), 
+    Math.floor(GRID_Z/2)
+  );
   let pull = gravityStrength > 0;  // true = pull to center, false = push to edges
   
   // Process each food item
-  for (let food of foods) {
+  for (let i = foods.length - 1; i >= 0; i--) {
+    let food = foods[i];
     let pos = food.pos;
-    // Find the direction with largest distance to center
-    let dx = Math.abs(pos.x - center.x);
-    let dy = Math.abs(pos.y - center.y);
-    let dz = Math.abs(pos.z - center.z);
     
+    // Check if food is at or near the edge when pushing
+    if (!pull) {
+      if (pos.x <= 1 || pos.x >= GRID_X - 2 ||
+          pos.y <= 1 || pos.y >= GRID_Y - 2 ||
+          pos.z <= 1 || pos.z >= GRID_Z - 2) {
+        // Respawn at center with small random offset
+        food.pos = createVector(
+          center.x + floor(random(-2, 3)),
+          center.y + floor(random(-2, 3)),
+          center.z + floor(random(-2, 3))
+        );
+        // Reset birth time to prevent immediate expiration
+        food.birth = millis();
+        continue;
+      }
+    }
+    
+    // Move food towards or away from center
+    let dx = pos.x - center.x;
+    let dy = pos.y - center.y;
+    let dz = pos.z - center.z;
+    
+    // Find the largest distance component
+    let maxDist = Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz));
     let newPos = pos.copy();
     
-    // Move in the direction of largest distance
-    if (dx >= dy && dx >= dz) {
-      // Move along X
-      let moveDir = pos.x > center.x ? -1 : 1;
-      if (!pull) moveDir *= -1;
-      newPos.x = (pos.x + moveDir + GRID_X) % GRID_X;
-    } else if (dy >= dx && dy >= dz) {
-      // Move along Y
-      let moveDir = pos.y > center.y ? -1 : 1;
-      if (!pull) moveDir *= -1;
-      newPos.y = (pos.y + moveDir + GRID_Y) % GRID_Y;
+    if (Math.abs(dx) === maxDist) {
+      newPos.x += (dx > 0 ? (pull ? -1 : 1) : (pull ? 1 : -1));
+    } else if (Math.abs(dy) === maxDist) {
+      newPos.y += (dy > 0 ? (pull ? -1 : 1) : (pull ? 1 : -1));
     } else {
-      // Move along Z
-      let moveDir = pos.z > center.z ? -1 : 1;
-      if (!pull) moveDir *= -1;
-      newPos.z = (pos.z + moveDir + GRID_Z) % GRID_Z;
+      newPos.z += (dz > 0 ? (pull ? -1 : 1) : (pull ? 1 : -1));
     }
+    
+    // Ensure position stays within grid bounds
+    newPos.x = constrain(newPos.x, 0, GRID_X - 1);
+    newPos.y = constrain(newPos.y, 0, GRID_Y - 1);
+    newPos.z = constrain(newPos.z, 0, GRID_Z - 1);
     
     // Apply move if position is free
     if (isPositionFree(newPos)) {
