@@ -399,11 +399,10 @@ function processCollisions() {
     for (let j = i + 1; j < snakes.length; j++) {
       if (!snakes[i].alive || !snakes[j].alive) continue;
       
-      // Get heads and bodies
       let headA = snakes[i].body[0];
       let headB = snakes[j].body[0];
       
-      // Check head-to-head collision (slither.io style)
+      // Head-to-head collision
       if (headA.equals(headB)) {
         if (DEBUG) console.log(`Head-to-head collision between snakes ${i} and ${j}`);
         if (snakes[i].body.length < snakes[j].body.length) {
@@ -411,15 +410,14 @@ function processCollisions() {
         } else if (snakes[i].body.length > snakes[j].body.length) {
           snakes[j].die();
         } else {
-          // If equal length, both die (slither.io logic)
+          // If equal length, both die.
           snakes[i].die();
           snakes[j].die();
         }
         continue;
       }
       
-      // Check head-to-body collisions (slither.io style)
-      // Snake A's head hitting Snake B's body
+      // Check if snake i's head hits any segment (excluding head) of snake j.
       for (let k = 1; k < snakes[j].body.length; k++) {
         if (headA.equals(snakes[j].body[k])) {
           if (DEBUG) console.log(`Snake ${i}'s head hit snake ${j}'s body`);
@@ -428,7 +426,7 @@ function processCollisions() {
         }
       }
       
-      // Snake B's head hitting Snake A's body
+      // Check if snake j's head hits any segment (excluding head) of snake i.
       for (let k = 1; k < snakes[i].body.length; k++) {
         if (headB.equals(snakes[i].body[k])) {
           if (DEBUG) console.log(`Snake ${j}'s head hit snake ${i}'s body`);
@@ -440,18 +438,15 @@ function processCollisions() {
   }
 }
 
-// Modified food collision to match slither.io behavior
+// Handle food collision: if a snake's head reaches a food's position, grow the snake and remove the food.
 function checkFoodCollision(snake) {
   let head = snake.body[0];
   for (let i = foods.length - 1; i >= 0; i--) {
-    let f = foods[i];
-    if (head.equals(f.pos)) {
-      if (DEBUG) console.log(`Snake ate food at (${f.pos.x}, ${f.pos.y}, ${f.pos.z}), length: ${snake.body.length}`);
-      foods.splice(i, 1);
+    let food = foods[i];
+    if (head.equals(food.pos)) {
       snake.grow();
-      // Spawn new food immediately to maintain food density
-      spawnFood();
-      break;
+      foods.splice(i, 1);
+      spawnFood(); // Spawn one new food item after one is eaten.
     }
   }
 }
