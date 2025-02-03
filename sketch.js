@@ -9,7 +9,7 @@ const MOVE_INTERVAL = 1;       // Time per move (ms) - fixed at maximum speed
 let NUM_SNAKES = 100;          // Number of snakes
 let INITIAL_SNAKE_LENGTH = 5;  // Starting segments per snake
 let FOOD_COUNT = 100;          // Initial food cubes (sparse)
-const cellSize = 10;         // Size of each cell in pixels (fixed)
+const cellSize = 11;         // Size of each cell in pixels (fixed)
 let bgColor;                 // Will be set from the palette in updatePalette()
 let FOOD_MAX_AGE = 10000;      // Max lifetime for food in ms (10 seconds)
 let currentPalette = 'default';  // Initial palette selection
@@ -22,7 +22,7 @@ let camX = 0, camY = 0, camZ = 0;
 let rotX, rotY;              // Will be initialized in setup()
 const CAM_SPEED = 5;
 const ZOOM_SPEED = 0.1;
-let zoom = 0.5;              // Start more zoomed in
+let zoom = 0.125;              // Start more zoomed in
 const MIN_ZOOM = 0.1;        // Maximum zoom out (smaller number = further out)
 const MAX_ZOOM = 3.333;      // Maximum zoom in
 const ROTATION_SENSITIVITY = 0.005;
@@ -55,8 +55,14 @@ let currentCamParams = {
   centerZ: 0,
   distance: 500
 };
-const CAM_UPDATE_INTERVAL = 1000; // Update target every 1 second
-const CAM_SMOOTH_FACTOR = 0.1; // Lower = smoother (0.05 to 0.2 is good range)
+const CAM_UPDATE_INTERVAL = 16;    // Update target more frequently (roughly 60fps)
+const CAM_SMOOTH_FACTOR = 0.05;    // Make movement smoother (was 0.1)
+const MIN_CAMERA_DISTANCE = 100;    // Increased from 5
+const MAX_CAMERA_DISTANCE = 2000;   // Add maximum distance
+const CAMERA_PADDING = 1.5;         // Reduced from 2.0 for tighter framing
+const MIN_BOUNDING_SIZE = 100;      // Reduced from 200 for closer view
+const NEAR_CLIP = 1;                // Changed from -100000
+const FAR_CLIP = 10000;             // Reduced from 100000
 
 // Gravity and food birth
 let gravityStrength = 0;  // -100 to +100
@@ -76,8 +82,15 @@ let HUNTING_MODE_ENABLED = true;  // Enable hunting mode for snakes
 const PHI = 1.618;
 
 // Add these constants at the top with other constants
-const SPAWN_CUBE_SIZE = 3;  // Size of cube needed to spawn snake
+const SPAWN_CUBE_SIZE = 2;  // Size of cube needed to spawn snake
 const SPAWN_MIN_FOOD = 9;   // Minimum food items needed in cube to spawn snake
+const EDGE_AVOIDANCE_DISTANCE = 3;  // How far from edge snakes try to stay
+
+// Add new variable for clear frame option
+let clearFrameEnabled = true;  // Default to true
+
+// Add this constant near other constants
+const SELF_COLLISION_OFFSET = 4;  // Skip the first few segments (tweak as needed)
 
 // Helper function for slight color shift
 function shiftColor(c, amount) {
@@ -112,6 +125,15 @@ function setup() {
 
   initializeGrid();
   createCanvas(windowWidth, windowHeight, WEBGL);
+  
+  // Set proper blending mode and enable depth test
+  blendMode(BLEND);
+  setAttributes({
+    alpha: true,
+    depth: true,
+    stencil: false,
+    antialias: true
+  });
 
   // Choose a random color palette from available palettes in PALETTES.
   currentPalette = random(Object.keys(PALETTES));
@@ -154,23 +176,29 @@ function setup() {
 
   lastMoveTime = millis();
   if (DEBUG) console.log('Setup complete');
-  blendMode(BLEND);
+
+  // Add event listener for clear frame checkbox
+  document.getElementById('clearFrame').addEventListener('change', (e) => {
+    clearFrameEnabled = e.target.checked;
+    if (clearFrameEnabled) {
+      // Clear the screen when enabling clear frame
+      clear();
+      background(bgColor);
+    }
+  });
 }
 
 function draw() {
-  // Ensure motionBlurAmount stays within 0-100 range
-  motionBlurAmount = constrain(motionBlurAmount, 0, 100);
-
-  // First, handle the motion blur effect
+  if (clearFrameEnabled) {
+    clear();
+    background(bgColor);
+  }
+  
+  // Set proper GL state for this frame
   push();
-  resetMatrix();
-  translate(-width / 2, -height / 2);
-  noStroke();
-  let alpha = map(motionBlurAmount, 0, 100, 255, 0);
-  fill(red(bgColor), green(bgColor), blue(bgColor), alpha);
-  rect(-width * 16, -height * 16, width * 32, height * 32);
-  pop();
-
+  ambientLight(80);
+  directionalLight(255, 255, 255, 0, 1, 0);
+  
   // Auto-adjust camera to frame all snakes
   autoAdjustCamera();
 
@@ -184,7 +212,6 @@ function draw() {
   }
 
   // Draw game elements
-  push();
   translate(-GRID_X * cellSize / 2, -GRID_Y * cellSize / 2, -GRID_Z * cellSize / 2);
 
   // Draw food
@@ -215,7 +242,6 @@ function draw() {
   for (let s of snakes) {
     s.draw();
   }
-  pop();
 
   // Draw debug overlay
   drawDebugInfo();
@@ -228,6 +254,8 @@ function draw() {
       lastFoodSpawnTime = now;
     }
   }
+  
+  pop();
 }
 
 function handleCameraMovement() {
@@ -281,27 +309,62 @@ class Snake {
   // Draw the snake (each body segment as a box or dot).
   draw() {
     if (!this.alive) return;
+    
+    push();
+    let segmentsToDraw = this.body;
+    if (snakeStyle === 'dots') {
+      // Only sort if transparency is needed
+      segmentsToDraw = [...this.body].sort((a, b) => {
+        let dA = dist(a.x * cellSize, a.y * cellSize, a.z * cellSize, 
+                      camEye.x, camEye.y, camEye.z);
+        let dB = dist(b.x * cellSize, b.y * cellSize, b.z * cellSize, 
+                      camEye.x, camEye.y, camEye.z);
+        return dB - dA;
+      });
+    }
 
-    for (let seg of this.body) {
+    // Draw the (sorted or unsorted) segments
+    for (let seg of segmentsToDraw) {
+      push();
+      translate(seg.x * cellSize, seg.y * cellSize, seg.z * cellSize);
       if (snakeStyle === 'dots') {
-        push();
-        translate(seg.x * cellSize, seg.y * cellSize, seg.z * cellSize);
-        let offset = (cellSize * 0.33) / PHI;
-        stroke(this.dotBackground);
-        point(offset, offset);
+        // Get the actual world position after grid offset translation
+        let gridOffset = createVector(
+          GRID_X * cellSize / 2,
+          GRID_Y * cellSize / 2,
+          GRID_Z * cellSize / 2
+        );
+        
+        // Calculate true world position including grid offset
+        let worldPos = createVector(
+          seg.x * cellSize - gridOffset.x,
+          seg.y * cellSize - gridOffset.y,
+          seg.z * cellSize - gridOffset.z
+        );
+        
+        // Calculate distance from camera to actual world position
+        let d = p5.Vector.dist(worldPos, camEye);
+        
+        // Define constants for dot size scaling (tweak as desired)
+        const MAX_DOT_SIZE = 12; // pixels when very close
+        const MIN_DOT_SIZE = 2;  // pixels when far away
+        
+        // Compute the dot size based on distance
+        let dotSize = map(d, MIN_CAMERA_DISTANCE, MAX_CAMERA_DISTANCE, MAX_DOT_SIZE, MIN_DOT_SIZE, true);
+        
+        // Draw the dot using the computed dotSize
         stroke(this.dotForeground);
-        strokeWeight(8 / PHI);
+        strokeWeight(dotSize);
         point(0, 0);
-        pop();
       } else {
-        push();
-        translate(seg.x * cellSize, seg.y * cellSize, seg.z * cellSize);
         fill(this.col);
         noStroke();
+        ambientMaterial(this.col);  // For consistent lighting
         box(cellSize * 1.1);
-        pop();
       }
+      pop();
     }
+    pop();
   }
 
   // Set snake's direction, avoiding direct reversal.
@@ -316,11 +379,21 @@ class Snake {
     this.direction = this.pendingDirection.copy();
     let head = this.body[0].copy();
     head.add(this.direction);
-    head.x = (head.x + GRID_X) % GRID_X;
-    head.y = (head.y + GRID_Y) % GRID_Y;
-    head.z = (head.z + GRID_Z) % GRID_Z;
-    this.body.unshift(head);
-    this.body.pop();
+    
+    // Check if new position would be at edge
+    if (head.x <= 0 || head.x >= GRID_X - 1 || 
+        head.y <= 0 || head.y >= GRID_Y - 1 || 
+        head.z <= 0 || head.z >= GRID_Z - 1) {
+      if (DEBUG) console.log('Snake hit edge, dying');
+      this.die();
+      return;
+    }
+    
+    // Only update position if snake is still alive
+    if (this.alive) {
+      this.body.unshift(head);
+      this.body.pop();
+    }
   }
 
   // Grow snake by duplicating the tail segment.
@@ -329,12 +402,18 @@ class Snake {
     this.body.push(tail);
   }
 
-  // Check if snake's head collides with its body segments (starting from index 4).
+  // Improved self-collision check
   checkSelfCollision() {
     let head = this.body[0];
-    for (let i = 4; i < this.body.length; i++) {
-      if (equalWithWrapping(head, this.body[i])) {
-        if (DEBUG) console.log(`Snake self-collision at segment ${i}`);
+    // Iterate from the offset index to avoid false positives from segments too near the head
+    for (let i = SELF_COLLISION_OFFSET; i < this.body.length; i++) {
+      // Direct coordinate comparison (no wrapping needed)
+      if (head.x === this.body[i].x &&
+          head.y === this.body[i].y &&
+          head.z === this.body[i].z) {
+        if (DEBUG) {
+          console.log(`Snake self-collision detected at segment ${i}`);
+        }
         return true;
       }
     }
@@ -436,60 +515,50 @@ function checkForTrappedPath(snake, pos, depth = 3) {
   return availableMoves === 0; // Return true if no moves available
 }
 
-// Modify updateAISnake to include smarter collision avoidance
+// Update the updateAISnake function to include edge avoidance
 function updateAISnake(snake) {
-  const head = snake.body[0];  // Changed to const to prevent redeclaration
+  const head = snake.body[0];
   
-  // First, check if we're about to collide with our body
-  let nextPos = p5.Vector.add(head, snake.direction);
-  nextPos.x = (nextPos.x + GRID_X) % GRID_X;
-  nextPos.y = (nextPos.y + GRID_Y) % GRID_Y;
-  nextPos.z = (nextPos.z + GRID_Z) % GRID_Z;
-  
-  // Check if next position would collide or lead to being trapped
-  let needsEvasion = false;
-  for (let i = 1; i < snake.body.length; i++) {
-    if (equalWithWrapping(nextPos, snake.body[i])) {
-      needsEvasion = true;
-      break;
+  // First check if we're too close to any edge
+  const nearEdge = (
+    head.x <= EDGE_AVOIDANCE_DISTANCE || head.x >= GRID_X - EDGE_AVOIDANCE_DISTANCE ||
+    head.y <= EDGE_AVOIDANCE_DISTANCE || head.y >= GRID_Y - EDGE_AVOIDANCE_DISTANCE ||
+    head.z <= EDGE_AVOIDANCE_DISTANCE || head.z >= GRID_Z - EDGE_AVOIDANCE_DISTANCE
+  );
+
+  if (nearEdge) {
+    // Calculate center of grid
+    const centerX = Math.floor(GRID_X / 2);
+    const centerY = Math.floor(GRID_Y / 2);
+    const centerZ = Math.floor(GRID_Z / 2);
+    
+    // Determine which direction to move towards center
+    let newDir = createVector(0, 0, 0);
+    
+    if (head.x <= EDGE_AVOIDANCE_DISTANCE) newDir.x = 1;
+    else if (head.x >= GRID_X - EDGE_AVOIDANCE_DISTANCE) newDir.x = -1;
+    else if (head.y <= EDGE_AVOIDANCE_DISTANCE) newDir.y = 1;
+    else if (head.y >= GRID_Y - EDGE_AVOIDANCE_DISTANCE) newDir.y = -1;
+    else if (head.z <= EDGE_AVOIDANCE_DISTANCE) newDir.z = 1;
+    else if (head.z >= GRID_Z - EDGE_AVOIDANCE_DISTANCE) newDir.z = -1;
+    
+    // Only change direction if it's safe
+    if (isSafeMove(snake, newDir)) {
+      snake.setDirection(newDir);
+      return;
+    }
+    
+    // If direct move to safety isn't possible, try alternative directions
+    let availableDirs = getAvailableDirections(snake.direction)
+      .filter(dir => isSafeMove(snake, dir));
+    
+    if (availableDirs.length > 0) {
+      snake.setDirection(random(availableDirs));
+      return;
     }
   }
-  
-  if (!needsEvasion) {
-    needsEvasion = checkForTrappedPath(snake, nextPos);
-  }
-  
-  if (needsEvasion) {
-    // Get all possible directions except reverse
-    let availableDirs = getAvailableDirections(snake.direction);
-    
-    // Shuffle directions to avoid predictable patterns
-    availableDirs = shuffle(availableDirs);
-    
-    // Try each direction until we find a safe one
-    for (let newDir of availableDirs) {
-      let testPos = p5.Vector.add(head, newDir);
-      testPos.x = (testPos.x + GRID_X) % GRID_X;
-      testPos.y = (testPos.y + GRID_Y) % GRID_Y;
-      testPos.z = (testPos.z + GRID_Z) % GRID_Z;
-      
-      // Check if this direction is safe
-      let isSafe = true;
-      for (let seg of snake.body) {
-        if (equalWithWrapping(testPos, seg)) {
-          isSafe = false;
-          break;
-        }
-      }
-      
-      if (isSafe && !checkForTrappedPath(snake, testPos)) {
-        snake.setDirection(newDir);
-        return; // Found a safe direction, exit
-      }
-    }
-  }
-  
-  // If no evasion needed or no safe direction found, continue with normal behavior
+
+  // If not near edge, continue with existing behavior
   if (foods.length === 0) return;
 
   let closestFood = null;
@@ -537,15 +606,23 @@ function updateAISnake(snake) {
   }
 }
 
-// Helper function to check if a move is safe
+// Update the isSafeMove function to consider edges
 function isSafeMove(snake, dir) {
   let head = snake.body[0];
   let nextPos = p5.Vector.add(head, dir);
+  
+  // Check if move would hit edge
+  if (nextPos.x <= 0 || nextPos.x >= GRID_X - 1 || 
+      nextPos.y <= 0 || nextPos.y >= GRID_Y - 1 || 
+      nextPos.z <= 0 || nextPos.z >= GRID_Z - 1) {
+    return false;
+  }
 
+  // Rest of existing collision checks
   for (let i = 0; i < snake.body.length - 1; i++) {
     if (nextPos.x === snake.body[i].x &&
-      nextPos.y === snake.body[i].y &&
-      nextPos.z === snake.body[i].z) {
+        nextPos.y === snake.body[i].y &&
+        nextPos.z === snake.body[i].z) {
       return false;
     }
   }
@@ -554,8 +631,8 @@ function isSafeMove(snake, dir) {
     if (!otherSnake.alive || otherSnake === snake) continue;
     for (let seg of otherSnake.body) {
       if (nextPos.x === seg.x &&
-        nextPos.y === seg.y &&
-        nextPos.z === seg.z) {
+          nextPos.y === seg.y &&
+          nextPos.z === seg.z) {
         return false;
       }
     }
@@ -784,15 +861,19 @@ function drawPyramid(s) {
 function autoAdjustCamera() {
   let now = millis();
 
+  // Update target position more frequently
   if (now - targetCamParams.lastUpdate > CAM_UPDATE_INTERVAL) {
     updateTargetCameraParams();
     targetCamParams.lastUpdate = now;
   }
 
-  currentCamParams.centerX += (targetCamParams.centerX - currentCamParams.centerX) * CAM_SMOOTH_FACTOR;
-  currentCamParams.centerY += (targetCamParams.centerY - currentCamParams.centerY) * CAM_SMOOTH_FACTOR;
-  currentCamParams.centerZ += (targetCamParams.centerZ - currentCamParams.centerZ) * CAM_SMOOTH_FACTOR;
-  currentCamParams.distance += (targetCamParams.distance - currentCamParams.distance) * CAM_SMOOTH_FACTOR;
+  // Apply smooth damping to camera movement
+  let smoothFactor = CAM_SMOOTH_FACTOR * (deltaTime / 16); // Frame-rate independent smoothing
+  
+  currentCamParams.centerX = lerp(currentCamParams.centerX, targetCamParams.centerX, smoothFactor);
+  currentCamParams.centerY = lerp(currentCamParams.centerY, targetCamParams.centerY, smoothFactor);
+  currentCamParams.centerZ = lerp(currentCamParams.centerZ, targetCamParams.centerZ, smoothFactor);
+  currentCamParams.distance = lerp(currentCamParams.distance, targetCamParams.distance, smoothFactor);
 
   let centerWorld = createVector(
     currentCamParams.centerX,
@@ -802,60 +883,29 @@ function autoAdjustCamera() {
 
   const FOV = PI / 3;
   let eye = centerWorld.copy();
-  eye.add(createVector(0, 0, currentCamParams.distance));
+  eye.add(createVector(
+    sin(rotY) * currentCamParams.distance * cos(rotX),
+    -sin(rotX) * currentCamParams.distance,
+    cos(rotY) * currentCamParams.distance * cos(rotX)
+  ));
 
   camEye = eye.copy();
   camCenter = centerWorld.copy();
   globalFOV = FOV;
   globalAspect = width / height;
 
+  perspective(FOV, width/height, NEAR_CLIP, FAR_CLIP);
+  
   camera(eye.x, eye.y, eye.z,
     centerWorld.x, centerWorld.y, centerWorld.z,
     0, 1, 0);
-}
 
-// New function to calculate target camera parameters.
-function updateTargetCameraParams() {
-  let offset = createVector(GRID_X * cellSize / 2, GRID_Y * cellSize / 2, GRID_Z * cellSize / 2);
-  let minX = Infinity, minY = Infinity, minZ = Infinity;
-  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-
-  let hasAliveSnakes = false;
-
-  for (let snake of snakes) {
-    if (!snake.alive) continue;
-    hasAliveSnakes = true;
-    for (let seg of snake.body) {
-      let wx = seg.x * cellSize - offset.x;
-      let wy = seg.y * cellSize - offset.y;
-      let wz = seg.z * cellSize - offset.z;
-      minX = min(minX, wx);
-      minY = min(minY, wy);
-      minZ = min(minZ, wz);
-      maxX = max(maxX, wx);
-      maxY = max(maxY, wy);
-      maxZ = max(maxZ, wz);
-    }
-  }
-
-  if (!hasAliveSnakes) {
-    targetCamParams.centerX = 0;
-    targetCamParams.centerY = 0;
-    targetCamParams.centerZ = 0;
-    targetCamParams.distance = 500;
-    return;
-  }
-
-  targetCamParams.centerX = (minX + maxX) / 2;
-  targetCamParams.centerY = (minY + maxY) / 2;
-  targetCamParams.centerZ = (minZ + maxZ) / 2;
-
-  let dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
-  let maxDim = max(dx, dy, dz);
-
-  const FOV = PI / 3;
-  targetCamParams.distance = (maxDim / 2) / tan(FOV / 2) * 1.2;
-  targetCamParams.distance = max(targetCamParams.distance, 200);
+  // Ensure camera distance stays within bounds
+  currentCamParams.distance = constrain(
+    currentCamParams.distance,
+    MIN_CAMERA_DISTANCE,
+    MAX_CAMERA_DISTANCE
+  );
 }
 
 // Update simulation parameters from control panel.
@@ -864,17 +914,20 @@ function updateParams() {
   FOOD_COUNT = parseInt(document.getElementById('foodCount').value);
   INITIAL_SNAKE_LENGTH = parseInt(document.getElementById('snakeLength').value);
   FOOD_MAX_AGE = parseInt(document.getElementById('foodMaxAge').value);
-  motionBlurAmount = parseFloat(document.getElementById('motionBlur').value);
   currentPalette = document.getElementById('colorPalette').value;
   gravityStrength = parseInt(document.getElementById('gravityStrength').value);
   snakeStyle = document.getElementById('snakeStyle').value;
   updatePalette();
+  clearFrameEnabled = document.getElementById('clearFrame').checked;
 }
 
 // Restart the simulation with new parameters.
 function restartSimulation() {
   updateParams();
-  background(red(bgColor), green(bgColor), blue(bgColor), 255);
+  // Clear the canvas properly
+  clear();
+  background(bgColor);
+  
   snakes = [];
   foods = [];
   foodVelocities.clear();
@@ -1185,4 +1238,72 @@ function checkFoodClusters() {
       }
     }
   }
+}
+
+// Update the updateTargetCameraParams function to reduce jitter
+function updateTargetCameraParams() {
+  let offset = createVector(GRID_X * cellSize / 2, GRID_Y * cellSize / 2, GRID_Z * cellSize / 2);
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  let centerOfMass = createVector(0, 0, 0);
+  let totalMass = 0;
+
+  let hasAliveSnakes = false;
+  let aliveCount = 0;
+
+  // Calculate center of mass and bounds
+  for (let snake of snakes) {
+    if (!snake.alive) continue;
+    hasAliveSnakes = true;
+    aliveCount++;
+    
+    for (let seg of snake.body) {
+      let wx = seg.x * cellSize - offset.x;
+      let wy = seg.y * cellSize - offset.y;
+      let wz = seg.z * cellSize - offset.z;
+      
+      // Add to center of mass
+      centerOfMass.add(createVector(wx, wy, wz));
+      totalMass++;
+      
+      // Update bounds
+      minX = min(minX, wx);
+      minY = min(minY, wy);
+      minZ = min(minZ, wz);
+      maxX = max(maxX, wx);
+      maxY = max(maxY, wy);
+      maxZ = max(maxZ, wz);
+    }
+  }
+
+  if (!hasAliveSnakes) {
+    targetCamParams.centerX = 0;
+    targetCamParams.centerY = 0;
+    targetCamParams.centerZ = 0;
+    targetCamParams.distance = MIN_CAMERA_DISTANCE;
+    return;
+  }
+
+  // Use center of mass for more stable camera targeting
+  centerOfMass.div(totalMass);
+  
+  // Ensure minimum bounding box size
+  let size = max(MIN_BOUNDING_SIZE, 
+                 maxX - minX,
+                 maxY - minY,
+                 maxZ - minZ);
+  
+  // Set target to center of mass
+  targetCamParams.centerX = centerOfMass.x;
+  targetCamParams.centerY = centerOfMass.y;
+  targetCamParams.centerZ = centerOfMass.z;
+
+  // Calculate camera distance based on bounding sphere with clamping
+  const FOV = PI / 3;
+  let idealDistance = (size * CAMERA_PADDING) / (2 * tan(FOV / 2));
+  targetCamParams.distance = constrain(
+    idealDistance,
+    MIN_CAMERA_DISTANCE,
+    MAX_CAMERA_DISTANCE
+  );
 }
